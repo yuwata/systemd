@@ -120,7 +120,7 @@ static void test_dns_resource_record_get_cname_target(void) {
 }
 
 int main(int argc, char **argv) {
-        _cleanup_globfree_ glob_t g = {};
+        _cleanup_strv_free_ char **v = NULL;
         char **fnames;
 
         test_setup_logging(LOG_DEBUG);
@@ -130,8 +130,8 @@ int main(int argc, char **argv) {
         else {
                 _cleanup_free_ char *pkts_glob = NULL;
                 ASSERT_OK(get_testdata_dir("test-resolve/*.pkts", &pkts_glob));
-                ASSERT_OK(safe_glob(pkts_glob, GLOB_NOSORT, &g));
-                fnames = g.gl_pathv;
+                ASSERT_OK(safe_glob(pkts_glob, GLOB_NOSORT, &v));
+                fnames = v;
         }
 
         STRV_FOREACH(p, fnames) {
