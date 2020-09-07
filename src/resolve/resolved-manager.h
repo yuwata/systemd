@@ -152,6 +152,8 @@ struct Manager {
 
         Hashmap *polkit_registry;
 
+        Set *restrict_interfaces;
+
         VarlinkServer *varlink_server;
 };
 

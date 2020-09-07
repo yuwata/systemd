@@ -490,6 +490,62 @@ int config_parse_dns_stub_listener_extra(
         return 0;
 }
 
+int config_parse_resolve_restrict_interfaces(
+                const char *unit,
+                const char *filename,
+                unsigned line,
+                const char *section,
+                unsigned section_line,
+                const char *lvalue,
+                int ltype,
+                const char *rvalue,
+                void *data,
+                void *userdata) {
+
+        Manager *m = userdata;
+        int r;
+
+        assert(filename);
+        assert(lvalue);
+        assert(rvalue);
+        assert(userdata);
+
+        if (isempty(rvalue)) {
+                m->restrict_interfaces = set_free(m->restrict_interfaces);
+                return 0;
+        }
+
+        for (const char *p = rvalue;;) {
+                _cleanup_free_ char *n = NULL;
+
+                r = extract_first_word(&p, &n, NULL, 0);
+                if (r < 0) {
+                        if (r == -ENOMEM)
+                                return log_oom();
+
+                        log_syntax(unit, LOG_ERR, filename, line, r,
+                                   "Failed to parse %s=%s, ignoring assignment: %m", lvalue, rvalue);
+                        return 0;
+                }
+                if (r == 0)
+                        return 0;
+
+                r = set_ensure_put(&m->restrict_interfaces, &string_hash_ops, n);
+                if (r < 0) {
+                        if (r == -ENOMEM)
+                                return log_oom();
+
+                        log_warning("Failed to store interface '%s' to restrict interface list, ignoring assignment: %m", n);
+
+                        continue;
+                }
+
+                TAKE_PTR(n);
+        }
+
+        return 0;
+}
+
 int manager_parse_config_file(Manager *m) {
         int r;
 
