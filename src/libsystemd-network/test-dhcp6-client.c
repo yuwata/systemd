@@ -63,12 +63,12 @@ static int test_client_basic(sd_event *e) {
         assert_se(sd_dhcp6_client_set_fqdn(client, "~host") == -EINVAL);
         assert_se(sd_dhcp6_client_set_fqdn(client, "~host.domain") == -EINVAL);
 
-        assert_se(sd_dhcp6_client_set_request_option(client, SD_DHCP6_OPTION_CLIENTID) == 0);
-        assert_se(sd_dhcp6_client_set_request_option(client, SD_DHCP6_OPTION_DNS_SERVERS) == -EEXIST);
-        assert_se(sd_dhcp6_client_set_request_option(client, SD_DHCP6_OPTION_NTP_SERVER) == -EEXIST);
-        assert_se(sd_dhcp6_client_set_request_option(client, SD_DHCP6_OPTION_SNTP_SERVERS) == -EEXIST);
-        assert_se(sd_dhcp6_client_set_request_option(client, SD_DHCP6_OPTION_DOMAIN_LIST) == -EEXIST);
-        assert_se(sd_dhcp6_client_set_request_option(client, 10) == 0);
+        assert_se(sd_dhcp6_client_set_request_option(client, SD_DHCP6_OPTION_CLIENTID) == 1);
+        assert_se(sd_dhcp6_client_set_request_option(client, SD_DHCP6_OPTION_DNS_SERVERS) == 0);
+        assert_se(sd_dhcp6_client_set_request_option(client, SD_DHCP6_OPTION_NTP_SERVER) == 0);
+        assert_se(sd_dhcp6_client_set_request_option(client, SD_DHCP6_OPTION_SNTP_SERVERS) == 0);
+        assert_se(sd_dhcp6_client_set_request_option(client, SD_DHCP6_OPTION_DOMAIN_LIST) == 0);
+        assert_se(sd_dhcp6_client_set_request_option(client, 10) == 1);
 
         assert_se(sd_dhcp6_client_set_information_request(client, 1) >= 0);
         v = 0;

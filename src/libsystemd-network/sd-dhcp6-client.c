@@ -23,6 +23,7 @@
 #include "in-addr-util.h"
 #include "network-internal.h"
 #include "random-util.h"
+#include "set.h"
 #include "socket-util.h"
 #include "string-table.h"
 #include "util.h"
@@ -63,9 +64,7 @@ struct sd_dhcp6_client {
         int fd;
         bool information_request;
         bool iaid_set;
-        be16_t *req_opts;
-        size_t req_opts_allocated;
-        size_t req_opts_len;
+        Set *req_opts;
         char *fqdn;
         char *mudurl;
         char **user_class;
@@ -430,25 +429,13 @@ int sd_dhcp6_client_get_information_request(sd_dhcp6_client *client, int *enable
 }
 
 int sd_dhcp6_client_set_request_option(sd_dhcp6_client *client, uint16_t option) {
-        size_t t;
-
         assert_return(client, -EINVAL);
         assert_return(client->state == DHCP6_STATE_STOPPED, -EBUSY);
 
         if (option <= 0 || option >= UINT8_MAX)
                 return -EINVAL;
 
-        for (t = 0; t < client->req_opts_len; t++)
-                if (client->req_opts[t] == htobe16(option))
-                        return -EEXIST;
-
-        if (!GREEDY_REALLOC(client->req_opts, client->req_opts_allocated,
-                            client->req_opts_len + 1))
-                return -ENOMEM;
-
-        client->req_opts[client->req_opts_len++] = htobe16(option);
-
-        return 0;
+        return set_ensure_put(&client->req_opts, NULL, UINT16_TO_PTR(option));
 }
 
 int sd_dhcp6_client_set_request_mud_url(sd_dhcp6_client *client, const char *mudurl) {
@@ -835,11 +822,25 @@ static int client_send_message(sd_dhcp6_client *client, usec_t time_now) {
                 return -EINVAL;
         }
 
-        r = dhcp6_option_append(&opt, &optlen, SD_DHCP6_OPTION_ORO,
-                                client->req_opts_len * sizeof(be16_t),
-                                client->req_opts);
-        if (r < 0)
-                return r;
+        if (!set_isempty(client->req_opts)) {
+                _cleanup_free_ be16_t *opts = NULL;
+                size_t n_opts, i = 0;
+                void *val;
+
+                n_opts = set_size(client->req_opts);
+                opts = new(be16_t, n_opts);
+                if (!opts)
+                        return -ENOMEM;
+
+                SET_FOREACH(val, client->req_opts)
+                        opts[i++] = htobe16(PTR_TO_UINT16(val));
+                assert(i == n_opts);
+
+                r = dhcp6_option_append(&opt, &optlen, SD_DHCP6_OPTION_ORO,
+                                        n_opts * sizeof(be16_t), opts);
+                if (r < 0)
+                        return r;
+        }
 
         assert(client->duid_len);
         r = dhcp6_option_append(&opt, &optlen, SD_DHCP6_OPTION_CLIENTID,
@@ -1790,7 +1791,7 @@ static sd_dhcp6_client *dhcp6_client_free(sd_dhcp6_client *client) {
 
         sd_dhcp6_client_detach_event(client);
 
-        free(client->req_opts);
+        set_free(client->req_opts);
         free(client->fqdn);
         free(client->mudurl);
 
@@ -1805,17 +1806,9 @@ DEFINE_TRIVIAL_REF_UNREF_FUNC(sd_dhcp6_client, sd_dhcp6_client, dhcp6_client_fre
 
 int sd_dhcp6_client_new(sd_dhcp6_client **ret) {
         _cleanup_(sd_dhcp6_client_unrefp) sd_dhcp6_client *client = NULL;
-        _cleanup_free_ be16_t *req_opts = NULL;
-        size_t t;
+        int r;
 
         assert_return(ret, -EINVAL);
-
-        req_opts = new(be16_t, ELEMENTSOF(default_req_opts));
-        if (!req_opts)
-                return -ENOMEM;
-
-        for (t = 0; t < ELEMENTSOF(default_req_opts); t++)
-                req_opts[t] = htobe16(default_req_opts[t]);
 
         client = new(sd_dhcp6_client, 1);
         if (!client)
@@ -1828,11 +1821,15 @@ int sd_dhcp6_client_new(sd_dhcp6_client **ret) {
                 .ifindex = -1,
                 .request = DHCP6_REQUEST_IA_NA,
                 .fd = -1,
-                .req_opts_len = ELEMENTSOF(default_req_opts),
                 .hint_pd_prefix.iapdprefix.lifetime_preferred = (be32_t) -1,
                 .hint_pd_prefix.iapdprefix.lifetime_valid = (be32_t) -1,
-                .req_opts = TAKE_PTR(req_opts),
         };
+
+        for (size_t i = 0; i < ELEMENTSOF(default_req_opts); i++) {
+                r = sd_dhcp6_client_set_request_option(client, default_req_opts[i]);
+                if (r < 0)
+                        return r;
+        }
 
         *ret = TAKE_PTR(client);
 
