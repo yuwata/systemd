@@ -1500,11 +1500,9 @@ int dhcp6_update_mac(Link *link) {
 
         restart = sd_dhcp6_client_is_running(link->dhcp6_client) > 0;
 
-        if (restart) {
-                r = sd_dhcp6_client_stop(link->dhcp6_client);
-                if (r < 0)
-                        return r;
-        }
+        r = sd_dhcp6_client_stop(link->dhcp6_client);
+        if (r < 0)
+                return r;
 
         r = dhcp6_set_identifier(link, link->dhcp6_client);
         if (r < 0)
