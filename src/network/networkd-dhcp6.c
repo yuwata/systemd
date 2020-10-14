@@ -1440,10 +1440,6 @@ int dhcp6_configure(Link *link) {
                 uint32_t option = PTR_TO_UINT32(request_options);
 
                 r = sd_dhcp6_client_set_request_option(client, option);
-                if (r == -EEXIST) {
-                        log_link_debug(link, "DHCP6 CLIENT: Failed to set request flag for '%u' already exists, ignoring.", option);
-                        continue;
-                }
                 if (r < 0)
                         return log_link_error_errno(link, r, "DHCP6 CLIENT: Failed to set request flag for '%u': %m", option);
         }
