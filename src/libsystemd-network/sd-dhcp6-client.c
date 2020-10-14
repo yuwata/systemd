@@ -1480,8 +1480,7 @@ static int client_receive_message(
                         return 0;
 
                 client_notify(client, SD_DHCP6_CLIENT_EVENT_INFORMATION_REQUEST);
-
-                client_start(client, DHCP6_STATE_STOPPED);
+                client_start(client, DHCP6_STATE_INFORMATION_REQUEST);
 
                 break;
 
@@ -1561,7 +1560,7 @@ static int client_start(sd_dhcp6_client *client, enum DHCP6State state) {
         assert_return(client, -EINVAL);
         assert_return(client->event, -EINVAL);
         assert_return(client->ifindex > 0, -EINVAL);
-        assert_return(client->state != state, -EINVAL);
+        assert(state != DHCP6_STATE_STOPPED);
 
         (void) event_source_disable(client->timeout_resend_expire);
         (void) event_source_disable(client->timeout_resend);
@@ -1592,29 +1591,25 @@ static int client_start(sd_dhcp6_client *client, enum DHCP6State state) {
 
         switch (state) {
         case DHCP6_STATE_STOPPED:
-                if (client->state == DHCP6_STATE_INFORMATION_REQUEST) {
-                        client->state = DHCP6_STATE_STOPPED;
+                assert_not_reached("Invalid dhcp6 client state.");
+                break;
 
-                        return 0;
-                }
-
-                _fallthrough_;
         case DHCP6_STATE_SOLICITATION:
                 client->state = DHCP6_STATE_SOLICITATION;
-
                 break;
 
         case DHCP6_STATE_INFORMATION_REQUEST:
+                if (client->state == state)
+                        return 0;
+
+                _fallthrough_;
         case DHCP6_STATE_REQUEST:
         case DHCP6_STATE_RENEW:
         case DHCP6_STATE_REBIND:
-
                 client->state = state;
-
                 break;
 
         case DHCP6_STATE_BOUND:
-
                 r = client_get_lifetime(client, &lifetime_t1, &lifetime_t2);
                 if (r < 0)
                         goto error;
@@ -1653,7 +1648,6 @@ static int client_start(sd_dhcp6_client *client, enum DHCP6State state) {
                         goto error;
 
                 client->state = state;
-
                 return 0;
         }
 
