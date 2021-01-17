@@ -36,6 +36,17 @@ typedef enum LogTarget{
         _LOG_TARGET_INVALID = -1
 } LogTarget;
 
+typedef struct LogDomain {
+        char *name;
+        int max_level; /* if < 0: use default log level maintained by log.c */
+} LogDomain;
+
+void log_domain_clear(LogDomain *domain);
+LogDomain *log_domain_free(LogDomain *domain);
+DEFINE_TRIVIAL_CLEANUP_FUNC(LogDomain*, log_domain_free);
+int log_domain_new(const char *name, LogDomain **ret);
+void log_domain_parse_environment(LogDomain *domain);
+
 /* Note to readers: << and >> have lower precedence than & and | */
 #define LOG_REALM_PLUS_LEVEL(realm, level)  ((realm) << 10 | (level))
 #define LOG_REALM_REMOVE_LEVEL(realm_level) ((realm_level) >> 10)
@@ -45,22 +56,24 @@ typedef enum LogTarget{
 
 void log_set_target(LogTarget target);
 
-void log_set_max_level_realm(LogRealm realm, int level);
+int parse_log_level(const char *str, const char *name);
+
+void log_set_max_level_full(LogRealm realm, LogDomain *log_domain, int level);
 
 #define log_set_max_level(level)                \
-        log_set_max_level_realm(LOG_REALM, (level))
+        log_set_max_level_full(LOG_REALM, NULL, (level))
 
 static inline void log_set_max_level_all_realms(int level) {
         for (LogRealm realm = 0; realm < _LOG_REALM_MAX; realm++)
-                log_set_max_level_realm(realm, level);
+                log_set_max_level_full(realm, NULL, level);
 }
 
 void log_set_facility(int facility);
 
 int log_set_target_from_string(const char *e);
-int log_set_max_level_from_string_realm(LogRealm realm, const char *e);
+int log_set_max_level_from_string_full(LogRealm realm, LogDomain *log_domain, const char *e);
 #define log_set_max_level_from_string(e)        \
-        log_set_max_level_from_string_realm(LOG_REALM, (e))
+        log_set_max_level_from_string_full(LOG_REALM, NULL, (e))
 
 void log_show_color(bool b);
 bool log_get_show_color(void) _pure_;
@@ -77,9 +90,9 @@ int log_show_time_from_string(const char *e);
 int log_show_tid_from_string(const char *e);
 
 LogTarget log_get_target(void) _pure_;
-int log_get_max_level_realm(LogRealm realm) _pure_;
+int log_get_max_level_full(LogRealm realm, const LogDomain *log_domain) _pure_;
 #define log_get_max_level()                     \
-        log_get_max_level_realm(LOG_REALM)
+        log_get_max_level_full(LOG_REALM, NULL)
 
 /* Functions below that open and close logs or configure logging based on the
  * environment should not be called from library code — this is always a job
@@ -232,17 +245,14 @@ void log_assert_failed_return_realm(
         log_dispatch_internal(level, error, PROJECT_FILE, __LINE__, __func__, NULL, NULL, NULL, NULL, buffer)
 
 /* Logging with level */
-#define log_full_errno_realm(realm, level, error, ...)                  \
+#define log_full_errno(level, error, ...)                               \
         ({                                                              \
-                int _level = (level), _e = (error), _realm = (realm);   \
-                (log_get_max_level_realm(_realm) >= LOG_PRI(_level))    \
-                        ? log_internal_realm(LOG_REALM_PLUS_LEVEL(_realm, _level), _e, \
-                                             PROJECT_FILE, __LINE__, __func__, __VA_ARGS__) \
+                int _level = (level), _e = (error);                     \
+                (log_get_max_level() >= LOG_PRI(_level))                \
+                        ? log_internal(_level, _e,                      \
+                                       PROJECT_FILE, __LINE__, __func__, __VA_ARGS__) \
                         : -ERRNO_VALUE(_e);                             \
         })
-
-#define log_full_errno(level, error, ...)                               \
-        log_full_errno_realm(LOG_REALM, (level), (error), __VA_ARGS__)
 
 #define log_full(level, ...) (void) log_full_errno((level), 0, __VA_ARGS__)
 

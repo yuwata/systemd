@@ -65,6 +65,80 @@ static bool prohibit_ipc = false;
  * use here. */
 static char *log_abort_msg = NULL;
 
+void log_domain_clear(LogDomain *domain) {
+        assert(domain);
+
+        domain->name = mfree(domain);
+}
+
+LogDomain *log_domain_free(LogDomain *domain) {
+        if (!domain)
+                return NULL;
+
+        log_domain_clear(domain);
+
+        return mfree(domain);
+}
+
+int log_domain_new(const char *name, LogDomain **ret) {
+        _cleanup_free_ char *n = NULL;
+        _cleanup_(log_domain_freep) LogDomain *domain = NULL;
+
+        assert(name);
+        assert(ret);
+
+        n = strdup(name);
+        if (!n)
+                return -ENOMEM;
+
+        domain = new(LogDomain, 1);
+        if (!domain)
+                return -ENOMEM;
+
+        *domain = (LogDomain) {
+                .name = TAKE_PTR(n),
+                .max_level = -1,
+        };
+
+        log_domain_parse_environment(domain);
+
+        *ret = TAKE_PTR(domain);
+        return 0;
+}
+
+static int parse_proc_cmdline_item_domain(const char *key, const char *value, void *data) {
+        LogDomain *domain = data;
+
+        assert(domain);
+
+        if (proc_cmdline_key_streq(key, "systemd.log_level")) {
+
+                if (proc_cmdline_value_missing(key, value))
+                        return 0;
+
+                if (log_set_max_level_from_string_full(LOG_REALM, domain, value) < 0)
+                        log_warning("Failed to parse log level '%s'. Ignoring.", value);
+        }
+
+        return 0;
+}
+
+void log_domain_parse_environment(LogDomain *domain) {
+        const char *e;
+
+        assert(domain);
+
+        if (getpid_cached() == 1 || get_ctty_devnr(0, NULL) < 0)
+                /* Only try to read the command line in daemons. We assume that anything that has a
+                 * controlling tty is user stuff. For PID1 we do a special check in case it hasn't
+                 * closed the console yet. */
+                (void) proc_cmdline_parse(parse_proc_cmdline_item_domain, domain, PROC_CMDLINE_STRIP_RD_PREFIX);
+
+        e = getenv("SYSTEMD_LOG_LEVEL");
+        if (e && log_set_max_level_from_string_full(LOG_REALM, domain, e) < 0)
+                log_warning("Failed to parse log level '%s'. Ignoring.", e);
+}
+
 /* An assert to use in logging functions that does not call recursively
  * into our logging functions (since that might lead to a loop). */
 #define assert_raw(expr)                                                \
@@ -352,11 +426,14 @@ void log_forget_fds(void) {
         console_fd = kmsg_fd = syslog_fd = journal_fd = -1;
 }
 
-void log_set_max_level_realm(LogRealm realm, int level) {
+void log_set_max_level_full(LogRealm realm, LogDomain *domain, int level) {
         assert((level & LOG_PRIMASK) == level);
         assert(realm < ELEMENTSOF(log_max_level));
 
-        log_max_level[realm] = level;
+        if (domain)
+                domain->max_level = level;
+        else
+                log_max_level[realm] = level;
 }
 
 void log_set_facility(int facility) {
@@ -1101,14 +1178,50 @@ int log_set_target_from_string(const char *e) {
         return 0;
 }
 
-int log_set_max_level_from_string_realm(LogRealm realm, const char *e) {
+int parse_log_level(const char *str, const char *name) {
+        int ret = -ENOENT;
+
+        for (const char *p = str;;) {
+                _cleanup_free_ char *word = NULL;
+                char *domain_str, *level_str;
+                int r;
+
+                r = extract_first_word(&p, &word, ",", 0);
+                if (r < 0)
+                        return r;
+                if (r == 0)
+                        break;
+
+                level_str = strchr(word, '=');
+                if (level_str) {
+                        *level_str++ = '\0';
+                        domain_str = word;
+                } else {
+                        level_str = word;
+                        domain_str = NULL;
+                }
+
+                if (!streq_ptr(domain_str, name))
+                        continue;
+
+                r = log_level_from_string(level_str);
+                if (r < 0)
+                        continue;
+
+                ret = r;
+        }
+
+        return ret;
+}
+
+int log_set_max_level_from_string_full(LogRealm realm, LogDomain *domain, const char *e) {
         int t;
 
-        t = log_level_from_string(e);
+        t = parse_log_level(e, domain ? domain->name : NULL);
         if (t < 0)
                 return -EINVAL;
 
-        log_set_max_level_realm(realm, t);
+        log_set_max_level_full(realm, domain, t);
         return 0;
 }
 
@@ -1187,7 +1300,7 @@ void log_parse_environment_cli_realm(LogRealm realm) {
                 log_warning("Failed to parse log target '%s'. Ignoring.", e);
 
         e = getenv("SYSTEMD_LOG_LEVEL");
-        if (e && log_set_max_level_from_string_realm(realm, e) < 0)
+        if (e && log_set_max_level_from_string_full(realm, NULL, e) < 0)
                 log_warning("Failed to parse log level '%s'. Ignoring.", e);
 
         e = getenv("SYSTEMD_LOG_COLOR");
@@ -1211,7 +1324,10 @@ LogTarget log_get_target(void) {
         return log_target;
 }
 
-int log_get_max_level_realm(LogRealm realm) {
+int log_get_max_level_full(LogRealm realm, const LogDomain *domain) {
+        if (domain && domain->max_level >= 0)
+                return domain->max_level;
+
         return log_max_level[realm];
 }
 
