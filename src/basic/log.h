@@ -26,6 +26,9 @@ typedef enum LogTarget{
         _LOG_TARGET_INVALID = -1
 } LogTarget;
 
+typedef struct LogDomain LogDomain;
+typedef struct Hashmap Hashmap;
+
 /* Note to readers: << and >> have lower precedence than & and | */
 #define SYNTHETIC_ERRNO(num)                (1 << 30 | (num))
 #define IS_SYNTHETIC_ERRNO(val)             ((val) >> 30 & 1)
@@ -37,9 +40,18 @@ void log_set_target(LogTarget target);
 int log_set_target_from_string(const char *e);
 LogTarget log_get_target(void) _pure_;
 
-void log_set_max_level(int level);
-int log_set_max_level_from_string(const char *e);
-int log_get_max_level(void) _pure_;
+int log_set_max_level_full(LogDomain *domain, Hashmap **domains, const char *name, int level);
+static inline int log_set_max_level(int level) {
+        return log_set_max_level_full(NULL, NULL, NULL, level);
+}
+int log_set_max_level_full_from_string(LogDomain *domain, Hashmap **domains, const char *name, const char *str);
+static inline int log_set_max_level_from_string(const char *str) {
+        return log_set_max_level_full_from_string(NULL, NULL, NULL, str);
+}
+int log_get_max_level_full(LogDomain *domain, Hashmap *domains, const char *name) _pure_;
+static inline int log_get_max_level(void) {
+        return log_get_max_level_full(NULL, NULL, NULL);
+}
 
 void log_set_facility(int facility);
 
@@ -68,7 +80,10 @@ int log_open(void);
 void log_close(void);
 void log_forget_fds(void);
 
-void log_parse_environment(void);
+void log_parse_environment_full(Hashmap **domains);
+static inline void log_parse_environment(void) {
+        log_parse_environment_full(NULL);
+}
 
 int log_dispatch_internal(
                 int level,

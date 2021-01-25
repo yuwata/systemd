@@ -20,6 +20,7 @@
 #include "fd-util.h"
 #include "format-util.h"
 #include "io-util.h"
+#include "log-domain.h"
 #include "log.h"
 #include "macro.h"
 #include "missing_syscall.h"
@@ -351,10 +352,19 @@ void log_forget_fds(void) {
         console_fd = kmsg_fd = syslog_fd = journal_fd = -1;
 }
 
-void log_set_max_level(int level) {
+int log_set_max_level_full(LogDomain *domain, Hashmap **domains, const char *name, int level) {
+        int r = 0;
+
         assert((level & LOG_PRIMASK) == level);
 
-        log_max_level = level;
+        if (domain)
+                domain->max_level = level;
+        else if (domains && name)
+                r = log_domain_add(domains, name, level, NULL);
+        else
+                log_max_level = level;
+
+        return r;
 }
 
 void log_set_facility(int facility) {
@@ -1091,18 +1101,19 @@ int log_set_target_from_string(const char *e) {
         return 0;
 }
 
-int log_set_max_level_from_string(const char *e) {
+int log_set_max_level_full_from_string(LogDomain *domain, Hashmap **domains, const char *name, const char *str) {
         int t;
 
-        t = log_level_from_string(e);
+        t = log_level_from_string(str);
         if (t < 0)
                 return -EINVAL;
 
-        log_set_max_level(t);
+        log_set_max_level_full(domain, domains, name, t);
         return 0;
 }
 
 static int parse_proc_cmdline_item(const char *key, const char *value, void *data) {
+        Hashmap **domains = data;
 
         /*
          * The systemd.log_xyz= settings are parsed by all tools, and
@@ -1129,7 +1140,7 @@ static int parse_proc_cmdline_item(const char *key, const char *value, void *dat
                 if (proc_cmdline_value_missing(key, value))
                         return 0;
 
-                if (log_set_max_level_from_string(value) < 0)
+                if (log_domain_add_from_string(domains, value) < 0)
                         log_warning("Failed to parse log level '%s'. Ignoring.", value);
 
         } else if (proc_cmdline_key_streq(key, "systemd.log_color")) {
@@ -1157,7 +1168,7 @@ static int parse_proc_cmdline_item(const char *key, const char *value, void *dat
         return 0;
 }
 
-void log_parse_environment(void) {
+void log_parse_environment_full(Hashmap **domains) {
         const char *e;
 
         /* Do not call from library code. */
@@ -1166,14 +1177,14 @@ void log_parse_environment(void) {
                 /* Only try to read the command line in daemons. We assume that anything that has a
                  * controlling tty is user stuff. For PID1 we do a special check in case it hasn't
                  * closed the console yet. */
-                (void) proc_cmdline_parse(parse_proc_cmdline_item, NULL, PROC_CMDLINE_STRIP_RD_PREFIX);
+                (void) proc_cmdline_parse(parse_proc_cmdline_item, domains, PROC_CMDLINE_STRIP_RD_PREFIX);
 
         e = getenv("SYSTEMD_LOG_TARGET");
         if (e && log_set_target_from_string(e) < 0)
                 log_warning("Failed to parse log target '%s'. Ignoring.", e);
 
         e = getenv("SYSTEMD_LOG_LEVEL");
-        if (e && log_set_max_level_from_string(e) < 0)
+        if (e && log_domain_add_from_string(domains, e) < 0)
                 log_warning("Failed to parse log level '%s'. Ignoring.", e);
 
         e = getenv("SYSTEMD_LOG_COLOR");
@@ -1197,7 +1208,13 @@ LogTarget log_get_target(void) {
         return log_target;
 }
 
-int log_get_max_level(void) {
+int log_get_max_level_full(LogDomain *domain, Hashmap *domains, const char *name) {
+        if (!domain)
+                (void) log_domain_get(domains, name, &domain);
+
+        if (domain && domain->max_level >= 0)
+                return domain->max_level;
+
         return log_max_level;
 }
 
