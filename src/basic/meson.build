@@ -126,6 +126,8 @@ basic_sources = files('''
         list.h
         locale-util.c
         locale-util.h
+        log-domain.c
+        log-domain.h
         log.c
         log.h
         login-util.c
