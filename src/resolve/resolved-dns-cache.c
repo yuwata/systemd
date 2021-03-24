@@ -1324,7 +1324,7 @@ static int dns_cache_item_compare(DnsCacheItem * const *a, DnsCacheItem * const 
                 return strcmp_ptr(dns_cache_item_type_to_string(x), dns_cache_item_type_to_string(y));
 }
 
-void dns_cache_dump(DnsCache *cache, FILE *f) {
+void dns_cache_dump(DnsCache *cache, FILE *f, bool indent) {
         _cleanup_free_ DnsCacheItem **list = NULL;
         size_t n = 0, allocated = 0;
         DnsCacheItem *i;
@@ -1353,7 +1353,9 @@ void dns_cache_dump(DnsCache *cache, FILE *f) {
         for (size_t k = 0; k < n; k++) {
                 const char *t;
 
-                fputc('\t', f);
+                if (indent)
+                        fputc('\t', f);
+
                 if (list[k]->rr) {
                         t = dns_resource_record_to_string(list[k]->rr);
                         if (!t) {
