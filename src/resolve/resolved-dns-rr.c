@@ -667,7 +667,7 @@ int dns_resource_record_payload_equal(const DnsResourceRecord *a, const DnsResou
 
         case DNS_TYPE_NSEC:
                 return dns_name_equal(a->nsec.next_domain_name, b->nsec.next_domain_name) &&
-                       bitmap_equal(a->nsec.types, b->nsec.types);
+                       bitmap_compare_func(a->nsec.types, b->nsec.types) == 0;
 
         case DNS_TYPE_NSEC3:
                 return a->nsec3.algorithm == b->nsec3.algorithm &&
@@ -675,7 +675,7 @@ int dns_resource_record_payload_equal(const DnsResourceRecord *a, const DnsResou
                        a->nsec3.iterations == b->nsec3.iterations &&
                        FIELD_EQUAL(a->nsec3, b->nsec3, salt) &&
                        FIELD_EQUAL(a->nsec3, b->nsec3, next_hashed_name) &&
-                       bitmap_equal(a->nsec3.types, b->nsec3.types);
+                       bitmap_compare_func(a->nsec3.types, b->nsec3.types) == 0;
 
         case DNS_TYPE_TLSA:
                 return a->tlsa.cert_usage == b->tlsa.cert_usage &&

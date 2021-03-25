@@ -25,7 +25,7 @@ void bitmap_clear(Bitmap *b);
 
 bool bitmap_iterate(const Bitmap *b, Iterator *i, unsigned *n);
 
-bool bitmap_equal(const Bitmap *a, const Bitmap *b);
+int bitmap_compare_func(const Bitmap *a, const Bitmap *b);
 
 #define _BITMAP_FOREACH(n, b, i) \
         for (Iterator i = {}; bitmap_iterate((b), &i, (unsigned*)&(n)); )

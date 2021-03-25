@@ -80,15 +80,15 @@ int main(int argc, const char *argv[]) {
 
         b2 = bitmap_copy(b);
         assert_se(b2);
-        assert_se(bitmap_equal(b, b2) == true);
-        assert_se(bitmap_equal(b, b) == true);
-        assert_se(bitmap_equal(b, NULL) == false);
-        assert_se(bitmap_equal(NULL, b) == false);
-        assert_se(bitmap_equal(NULL, NULL) == true);
+        assert_se(bitmap_compare_func(b, b2) == 0);
+        assert_se(bitmap_compare_func(b, b) == 0);
+        assert_se(bitmap_compare_func(b, NULL) == 1);
+        assert_se(bitmap_compare_func(NULL, b) == -1);
+        assert_se(bitmap_compare_func(NULL, NULL) == 0);
 
         bitmap_clear(b);
         assert_se(bitmap_isclear(b) == true);
-        assert_se(bitmap_equal(b, b2) == false);
+        assert_se(bitmap_compare_func(b, b2) == -1);
         bitmap_free(b2);
         b2 = NULL;
 
@@ -99,18 +99,18 @@ int main(int argc, const char *argv[]) {
         assert_se(bitmap_ensure_allocated(&b) == 0);
         assert_se(bitmap_ensure_allocated(&b2) == 0);
 
-        assert_se(bitmap_equal(b, b2));
+        assert_se(bitmap_compare_func(b, b2) == 0);
         assert_se(bitmap_set(b, 0) == 0);
         bitmap_unset(b, 0);
-        assert_se(bitmap_equal(b, b2));
+        assert_se(bitmap_compare_func(b, b2) == 0);
 
         assert_se(bitmap_set(b, 1) == 0);
         bitmap_clear(b);
-        assert_se(bitmap_equal(b, b2));
+        assert_se(bitmap_compare_func(b, b2) == 0);
 
         assert_se(bitmap_set(b, 0) == 0);
         assert_se(bitmap_set(b2, 0) == 0);
-        assert_se(bitmap_equal(b, b2));
+        assert_se(bitmap_compare_func(b, b2) == 0);
 
         return 0;
 }
