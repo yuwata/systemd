@@ -598,7 +598,7 @@ int dns_resource_record_payload_equal(const DnsResourceRecord *a, const DnsResou
 
         case DNS_TYPE_SPF: /* exactly the same as TXT */
         case DNS_TYPE_TXT:
-                return dns_txt_item_equal(a->txt.items, b->txt.items);
+                return dns_txt_item_compare_func(a->txt.items, b->txt.items) == 0;
 
         case DNS_TYPE_A:
                 return memcmp(&a->a.in_addr, &b->a.in_addr, sizeof(struct in_addr)) == 0;
@@ -1796,24 +1796,13 @@ DnsTxtItem *dns_txt_item_free_all(DnsTxtItem *i) {
         return dns_txt_item_free_all(n);
 }
 
-bool dns_txt_item_equal(DnsTxtItem *a, DnsTxtItem *b) {
+int dns_txt_item_compare_func(const DnsTxtItem *a, const DnsTxtItem *b) {
+        if (!a || !b)
+                return CMP(a, b);
 
-        if (a == b)
-                return true;
-
-        if (!a != !b)
-                return false;
-
-        if (!a)
-                return true;
-
-        if (a->length != b->length)
-                return false;
-
-        if (memcmp(a->data, b->data, a->length) != 0)
-                return false;
-
-        return dns_txt_item_equal(a->items_next, b->items_next);
+        return CMP(a->length, b->length) ?:
+               memcmp(a->data, b->data, a->length) ?:
+               dns_txt_item_compare_func(a->items_next, b->items_next);
 }
 
 DnsTxtItem *dns_txt_item_copy(DnsTxtItem *first) {

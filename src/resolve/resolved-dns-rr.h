@@ -326,7 +326,7 @@ bool dns_resource_record_is_link_local_address(DnsResourceRecord *rr);
 int dns_resource_record_get_cname_target(DnsResourceKey *key, DnsResourceRecord *cname, char **ret);
 
 DnsTxtItem *dns_txt_item_free_all(DnsTxtItem *i);
-bool dns_txt_item_equal(DnsTxtItem *a, DnsTxtItem *b);
+int dns_txt_item_compare_func(const DnsTxtItem *a, const DnsTxtItem *b);
 DnsTxtItem *dns_txt_item_copy(DnsTxtItem *i);
 int dns_txt_item_new_empty(DnsTxtItem **ret);
 
