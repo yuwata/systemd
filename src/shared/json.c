@@ -4063,63 +4063,83 @@ int json_dispatch_tristate(const char *name, JsonVariant *variant, JsonDispatchF
         return 0;
 }
 
-int json_dispatch_intmax(const char *name, JsonVariant *variant, JsonDispatchFlags flags, void *userdata) {
-        intmax_t *i = userdata;
-
+static int json_dispatch_uint_internal(const char *name, JsonVariant *variant, JsonDispatchFlags flags, uintmax_t maximum, uintmax_t *ret) {
         assert(variant);
-        assert(i);
+        assert(ret);
 
-        if (!json_variant_is_integer(variant))
-                return json_log(variant, flags, SYNTHETIC_ERRNO(EINVAL), "JSON field '%s' is not an integer.", strna(name));
+        if (!json_variant_is_unsigned(variant))
+                return json_log(variant, flags, SYNTHETIC_ERRNO(EINVAL), "JSON field '%s' is not an unsigned integer.", strna(name));
 
-        *i = json_variant_integer(variant);
+        if (maximum != 0 && json_variant_unsigned(variant) > maximum)
+                return json_log(variant, flags, SYNTHETIC_ERRNO(ERANGE), "JSON field '%s' out of bounds.", strna(name));
+
+        *ret = json_variant_unsigned(variant);
         return 0;
 }
 
 int json_dispatch_uintmax(const char *name, JsonVariant *variant, JsonDispatchFlags flags, void *userdata) {
-        uintmax_t *u = userdata;
-
-        assert(variant);
-        assert(u);
-
-        if (!json_variant_is_unsigned(variant))
-                return json_log(variant, flags, SYNTHETIC_ERRNO(EINVAL), "JSON field '%s' is not an unsigned integer.", strna(name));
-
-        *u = json_variant_unsigned(variant);
-        return 0;
+        return json_dispatch_uint_internal(name, variant, flags, 0, userdata);
 }
 
-int json_dispatch_uint32(const char *name, JsonVariant *variant, JsonDispatchFlags flags, void *userdata) {
-        uint32_t *u = userdata;
+#define DEFINE_JSON_DISPATCH_UINT(function, type, maximum)              \
+        int function(const char *name, JsonVariant *variant, JsonDispatchFlags flags, void *userdata) { \
+                type *u = userdata;                                     \
+                uintmax_t ret;                                          \
+                int r;                                                  \
+                                                                        \
+                assert(variant);                                        \
+                assert(u);                                              \
+                                                                        \
+                r = json_dispatch_uint_internal(name, variant, flags, maximum, &ret); \
+                if (r < 0)                                              \
+                        return r;                                       \
+                                                                        \
+                *u = (type) ret;                                        \
+                return 0;                                               \
+        }
 
+DEFINE_JSON_DISPATCH_UINT(json_dispatch_uint32, uint32_t, UINT32_MAX);
+DEFINE_JSON_DISPATCH_UINT(json_dispatch_uint16, uint16_t, UINT16_MAX);
+DEFINE_JSON_DISPATCH_UINT(json_dispatch_uint8,  uint8_t,  UINT8_MAX);
+
+static int json_dispatch_int_internal(const char *name, JsonVariant *variant, JsonDispatchFlags flags, intmax_t minimum, intmax_t maximum, intmax_t *ret) {
         assert(variant);
-        assert(u);
-
-        if (!json_variant_is_unsigned(variant))
-                return json_log(variant, flags, SYNTHETIC_ERRNO(EINVAL), "JSON field '%s' is not an unsigned integer.", strna(name));
-
-        if (json_variant_unsigned(variant) > UINT32_MAX)
-                return json_log(variant, flags, SYNTHETIC_ERRNO(ERANGE), "JSON field '%s' out of bounds.", strna(name));
-
-        *u = (uint32_t) json_variant_unsigned(variant);
-        return 0;
-}
-
-int json_dispatch_int32(const char *name, JsonVariant *variant, JsonDispatchFlags flags, void *userdata) {
-        int32_t *i = userdata;
-
-        assert(variant);
-        assert(i);
+        assert(ret);
 
         if (!json_variant_is_integer(variant))
                 return json_log(variant, flags, SYNTHETIC_ERRNO(EINVAL), "JSON field '%s' is not an integer.", strna(name));
 
-        if (json_variant_integer(variant) < INT32_MIN || json_variant_integer(variant) > INT32_MAX)
+        if ((minimum != 0 && json_variant_integer(variant) < minimum) || (maximum != 0 && json_variant_integer(variant) > maximum))
                 return json_log(variant, flags, SYNTHETIC_ERRNO(ERANGE), "JSON field '%s' out of bounds.", strna(name));
 
-        *i = (int32_t) json_variant_integer(variant);
+        *ret = json_variant_integer(variant);
         return 0;
 }
+
+int json_dispatch_intmax(const char *name, JsonVariant *variant, JsonDispatchFlags flags, void *userdata) {
+        return json_dispatch_int_internal(name, variant, flags, 0, 0, userdata);
+}
+
+#define DEFINE_JSON_DISPATCH_INT(function, type, minimum, maximum)      \
+        int function(const char *name, JsonVariant *variant, JsonDispatchFlags flags, void *userdata) { \
+                type *u = userdata;                                     \
+                intmax_t ret;                                           \
+                int r;                                                  \
+                                                                        \
+                assert(variant);                                        \
+                assert(u);                                              \
+                                                                        \
+                r = json_dispatch_int_internal(name, variant, flags, minimum, maximum, &ret); \
+                if (r < 0)                                              \
+                        return r;                                       \
+                                                                        \
+                *u = (type) ret;                                        \
+                return 0;                                               \
+        }
+
+DEFINE_JSON_DISPATCH_INT(json_dispatch_int32, int32_t, INT32_MIN, INT32_MAX);
+DEFINE_JSON_DISPATCH_INT(json_dispatch_int16, int16_t, INT16_MIN, INT16_MAX);
+DEFINE_JSON_DISPATCH_INT(json_dispatch_int8,  int8_t,  INT8_MIN,  INT8_MAX);
 
 int json_dispatch_string(const char *name, JsonVariant *variant, JsonDispatchFlags flags, void *userdata) {
         char **s = userdata;
