@@ -563,134 +563,131 @@ int dns_resource_record_new_address(DnsResourceRecord **ret, int family, const u
         return 0;
 }
 
-#define FIELD_EQUAL(a, b, field) \
-        ((a).field ## _size == (b).field ## _size &&  \
-         memcmp_safe((a).field, (b).field, (a).field ## _size) == 0)
+#define FIELD_CMP(a, b, field) \
+        (CMP((a).field ## _size, (b).field ## _size) ?:         \
+         memcmp_safe((a).field, (b).field, (a).field ## _size))
 
-int dns_resource_record_payload_equal(const DnsResourceRecord *a, const DnsResourceRecord *b) {
+int dns_resource_record_payload_compare_func(const DnsResourceRecord *a, const DnsResourceRecord *b) {
         int r;
 
         /* Check if a and b are the same, but don't look at their keys */
 
-        if (a->unparsable != b->unparsable)
-                return 0;
+        r = CMP(a->unparsable, b->unparsable);
+        if (r != 0)
+                return r;
+
+        if (!a->unparsable) {
+                r = CMP(a->key->type, b->key->type);
+                if (r != 0)
+                        return r;
+        }
 
         switch (a->unparsable ? _DNS_TYPE_INVALID : a->key->type) {
 
         case DNS_TYPE_SRV:
-                r = dns_name_equal(a->srv.name, b->srv.name);
-                if (r <= 0)
-                        return r;
-
-                return a->srv.priority == b->srv.priority &&
-                       a->srv.weight == b->srv.weight &&
-                       a->srv.port == b->srv.port;
+                return dns_name_compare_func(a->srv.name, b->srv.name) ?:
+                       CMP(a->srv.priority, b->srv.priority) ?:
+                       CMP(a->srv.weight, b->srv.weight) ?:
+                       CMP(a->srv.port, b->srv.port);
 
         case DNS_TYPE_PTR:
         case DNS_TYPE_NS:
         case DNS_TYPE_CNAME:
         case DNS_TYPE_DNAME:
-                return dns_name_equal(a->ptr.name, b->ptr.name);
+                return dns_name_compare_func(a->ptr.name, b->ptr.name);
 
         case DNS_TYPE_HINFO:
-                return strcaseeq(a->hinfo.cpu, b->hinfo.cpu) &&
-                       strcaseeq(a->hinfo.os, b->hinfo.os);
+                return strcasecmp(a->hinfo.cpu, b->hinfo.cpu) ?:
+                       strcasecmp(a->hinfo.os, b->hinfo.os);
 
         case DNS_TYPE_SPF: /* exactly the same as TXT */
         case DNS_TYPE_TXT:
-                return dns_txt_item_compare_func(a->txt.items, b->txt.items) == 0;
+                return dns_txt_item_compare_func(a->txt.items, b->txt.items);
 
         case DNS_TYPE_A:
-                return memcmp(&a->a.in_addr, &b->a.in_addr, sizeof(struct in_addr)) == 0;
+                return memcmp(&a->a.in_addr, &b->a.in_addr, sizeof(struct in_addr));
 
         case DNS_TYPE_AAAA:
-                return memcmp(&a->aaaa.in6_addr, &b->aaaa.in6_addr, sizeof(struct in6_addr)) == 0;
+                return memcmp(&a->aaaa.in6_addr, &b->aaaa.in6_addr, sizeof(struct in6_addr));
 
         case DNS_TYPE_SOA:
-                r = dns_name_equal(a->soa.mname, b->soa.mname);
-                if (r <= 0)
-                        return r;
-                r = dns_name_equal(a->soa.rname, b->soa.rname);
-                if (r <= 0)
-                        return r;
-
-                return a->soa.serial  == b->soa.serial &&
-                       a->soa.refresh == b->soa.refresh &&
-                       a->soa.retry   == b->soa.retry &&
-                       a->soa.expire  == b->soa.expire &&
-                       a->soa.minimum == b->soa.minimum;
+                return dns_name_compare_func(a->soa.mname, b->soa.mname) ?:
+                       dns_name_compare_func(a->soa.rname, b->soa.rname) ?:
+                       CMP(a->soa.serial, b->soa.serial) ?:
+                       CMP(a->soa.refresh, b->soa.refresh) ?:
+                       CMP(a->soa.retry, b->soa.retry) ?:
+                       CMP(a->soa.expire, b->soa.expire) ?:
+                       CMP(a->soa.minimum, b->soa.minimum);
 
         case DNS_TYPE_MX:
-                if (a->mx.priority != b->mx.priority)
-                        return 0;
-
-                return dns_name_equal(a->mx.exchange, b->mx.exchange);
+                return CMP(a->mx.priority, b->mx.priority) ?:
+                       dns_name_compare_func(a->mx.exchange, b->mx.exchange);
 
         case DNS_TYPE_LOC:
                 assert(a->loc.version == b->loc.version);
 
-                return a->loc.size == b->loc.size &&
-                       a->loc.horiz_pre == b->loc.horiz_pre &&
-                       a->loc.vert_pre == b->loc.vert_pre &&
-                       a->loc.latitude == b->loc.latitude &&
-                       a->loc.longitude == b->loc.longitude &&
-                       a->loc.altitude == b->loc.altitude;
+                return CMP(a->loc.size, b->loc.size) ?:
+                       CMP(a->loc.horiz_pre, b->loc.horiz_pre) ?:
+                       CMP(a->loc.vert_pre, b->loc.vert_pre) ?:
+                       CMP(a->loc.latitude, b->loc.latitude) ?:
+                       CMP(a->loc.longitude, b->loc.longitude) ?:
+                       CMP(a->loc.altitude, b->loc.altitude);
 
         case DNS_TYPE_DS:
-                return a->ds.key_tag == b->ds.key_tag &&
-                       a->ds.algorithm == b->ds.algorithm &&
-                       a->ds.digest_type == b->ds.digest_type &&
-                       FIELD_EQUAL(a->ds, b->ds, digest);
+                return CMP(a->ds.key_tag, b->ds.key_tag) ?:
+                       CMP(a->ds.algorithm, b->ds.algorithm) ?:
+                       CMP(a->ds.digest_type, b->ds.digest_type) ?:
+                       FIELD_CMP(a->ds, b->ds, digest);
 
         case DNS_TYPE_SSHFP:
-                return a->sshfp.algorithm == b->sshfp.algorithm &&
-                       a->sshfp.fptype == b->sshfp.fptype &&
-                       FIELD_EQUAL(a->sshfp, b->sshfp, fingerprint);
+                return CMP(a->sshfp.algorithm, b->sshfp.algorithm) ?:
+                       CMP(a->sshfp.fptype, b->sshfp.fptype) ?:
+                       FIELD_CMP(a->sshfp, b->sshfp, fingerprint);
 
         case DNS_TYPE_DNSKEY:
-                return a->dnskey.flags == b->dnskey.flags &&
-                       a->dnskey.protocol == b->dnskey.protocol &&
-                       a->dnskey.algorithm == b->dnskey.algorithm &&
-                       FIELD_EQUAL(a->dnskey, b->dnskey, key);
+                return CMP(a->dnskey.flags, b->dnskey.flags) ?:
+                       CMP(a->dnskey.protocol, b->dnskey.protocol) ?:
+                       CMP(a->dnskey.algorithm, b->dnskey.algorithm) ?:
+                       FIELD_CMP(a->dnskey, b->dnskey, key);
 
         case DNS_TYPE_RRSIG:
                 /* do the fast comparisons first */
-                return a->rrsig.type_covered == b->rrsig.type_covered &&
-                       a->rrsig.algorithm == b->rrsig.algorithm &&
-                       a->rrsig.labels == b->rrsig.labels &&
-                       a->rrsig.original_ttl == b->rrsig.original_ttl &&
-                       a->rrsig.expiration == b->rrsig.expiration &&
-                       a->rrsig.inception == b->rrsig.inception &&
-                       a->rrsig.key_tag == b->rrsig.key_tag &&
-                       FIELD_EQUAL(a->rrsig, b->rrsig, signature) &&
-                       dns_name_equal(a->rrsig.signer, b->rrsig.signer);
+                return CMP(a->rrsig.type_covered, b->rrsig.type_covered) ?:
+                       CMP(a->rrsig.algorithm, b->rrsig.algorithm) ?:
+                       CMP(a->rrsig.labels, b->rrsig.labels) ?:
+                       CMP(a->rrsig.original_ttl, b->rrsig.original_ttl) ?:
+                       CMP(a->rrsig.expiration, b->rrsig.expiration) ?:
+                       CMP(a->rrsig.inception, b->rrsig.inception) ?:
+                       CMP(a->rrsig.key_tag, b->rrsig.key_tag) ?:
+                       FIELD_CMP(a->rrsig, b->rrsig, signature) ?:
+                       dns_name_compare_func(a->rrsig.signer, b->rrsig.signer);
 
         case DNS_TYPE_NSEC:
-                return dns_name_equal(a->nsec.next_domain_name, b->nsec.next_domain_name) &&
-                       bitmap_compare_func(a->nsec.types, b->nsec.types) == 0;
+                return dns_name_compare_func(a->nsec.next_domain_name, b->nsec.next_domain_name) ?:
+                       bitmap_compare_func(a->nsec.types, b->nsec.types);
 
         case DNS_TYPE_NSEC3:
-                return a->nsec3.algorithm == b->nsec3.algorithm &&
-                       a->nsec3.flags == b->nsec3.flags &&
-                       a->nsec3.iterations == b->nsec3.iterations &&
-                       FIELD_EQUAL(a->nsec3, b->nsec3, salt) &&
-                       FIELD_EQUAL(a->nsec3, b->nsec3, next_hashed_name) &&
-                       bitmap_compare_func(a->nsec3.types, b->nsec3.types) == 0;
+                return CMP(a->nsec3.algorithm, b->nsec3.algorithm) ?:
+                       CMP(a->nsec3.flags, b->nsec3.flags) ?:
+                       CMP(a->nsec3.iterations, b->nsec3.iterations) ?:
+                       FIELD_CMP(a->nsec3, b->nsec3, salt) ?:
+                       FIELD_CMP(a->nsec3, b->nsec3, next_hashed_name) ?:
+                       bitmap_compare_func(a->nsec3.types, b->nsec3.types);
 
         case DNS_TYPE_TLSA:
-                return a->tlsa.cert_usage == b->tlsa.cert_usage &&
-                       a->tlsa.selector == b->tlsa.selector &&
-                       a->tlsa.matching_type == b->tlsa.matching_type &&
-                       FIELD_EQUAL(a->tlsa, b->tlsa, data);
+                return CMP(a->tlsa.cert_usage, b->tlsa.cert_usage) ?:
+                       CMP(a->tlsa.selector, b->tlsa.selector) ?:
+                       CMP(a->tlsa.matching_type, b->tlsa.matching_type) ?:
+                       FIELD_CMP(a->tlsa, b->tlsa, data);
 
         case DNS_TYPE_CAA:
-                return a->caa.flags == b->caa.flags &&
-                       streq(a->caa.tag, b->caa.tag) &&
-                       FIELD_EQUAL(a->caa, b->caa, value);
+                return CMP(a->caa.flags, b->caa.flags) ?:
+                       strcmp_ptr(a->caa.tag, b->caa.tag) ?:
+                       FIELD_CMP(a->caa, b->caa, value);
 
         case DNS_TYPE_OPENPGPKEY:
         default:
-                return FIELD_EQUAL(a->generic, b->generic, data);
+                return FIELD_CMP(a->generic, b->generic, data);
         }
 }
 
@@ -707,7 +704,7 @@ int dns_resource_record_equal(const DnsResourceRecord *a, const DnsResourceRecor
         if (r <= 0)
                 return r;
 
-        return dns_resource_record_payload_equal(a, b);
+        return dns_resource_record_payload_compare_func(a, b) == 0;
 }
 
 static char* format_location(uint32_t latitude, uint32_t longitude, uint32_t altitude,
@@ -1480,18 +1477,8 @@ void dns_resource_record_hash_func(const DnsResourceRecord *rr, struct siphash *
 }
 
 int dns_resource_record_compare_func(const DnsResourceRecord *x, const DnsResourceRecord *y) {
-        int r;
-
-        r = dns_resource_key_compare_func(x->key, y->key);
-        if (r != 0)
-                return r;
-
-        if (dns_resource_record_payload_equal(x, y) > 0)
-                return 0;
-
-        /* We still use CMP() here, even though don't implement proper
-         * ordering, since the hashtable doesn't need ordering anyway. */
-        return CMP(x, y);
+        return dns_resource_key_compare_func(x->key, y->key) ?:
+               dns_resource_record_payload_compare_func(x, y);
 }
 
 DEFINE_HASH_OPS(dns_resource_record_hash_ops, DnsResourceRecord, dns_resource_record_hash_func, dns_resource_record_compare_func);

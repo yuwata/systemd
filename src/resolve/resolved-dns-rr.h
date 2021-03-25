@@ -103,9 +103,9 @@ struct DnsResourceRecord {
         /* How many labels to strip to determine "synthesizing source" of this RR, i.e. the wildcard's immediate parent. -1 if not signed. */
         unsigned n_skip_labels_source;
 
-        bool unparsable:1;
+        bool unparsable;
 
-        bool wire_format_canonical:1;
+        bool wire_format_canonical;
         void *wire_format;
         size_t wire_format_size;
         size_t wire_format_rdata_offset;
@@ -306,7 +306,7 @@ DnsResourceRecord* dns_resource_record_unref(DnsResourceRecord *rr);
 int dns_resource_record_new_reverse(DnsResourceRecord **ret, int family, const union in_addr_union *address, const char *name);
 int dns_resource_record_new_address(DnsResourceRecord **ret, int family, const union in_addr_union *address, const char *name);
 int dns_resource_record_equal(const DnsResourceRecord *a, const DnsResourceRecord *b);
-int dns_resource_record_payload_equal(const DnsResourceRecord *a, const DnsResourceRecord *b);
+int dns_resource_record_payload_compare_func(const DnsResourceRecord *a, const DnsResourceRecord *b);
 
 const char* dns_resource_record_to_string(DnsResourceRecord *rr);
 DnsResourceRecord *dns_resource_record_copy(DnsResourceRecord *rr);
