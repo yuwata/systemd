@@ -296,7 +296,7 @@ static void dns_resource_key_hash_func(const DnsResourceKey *k, struct siphash *
         siphash24_compress(&k->type, sizeof(k->type), state);
 }
 
-static int dns_resource_key_compare_func(const DnsResourceKey *x, const DnsResourceKey *y) {
+int dns_resource_key_compare_func(const DnsResourceKey *x, const DnsResourceKey *y) {
         int r;
 
         r = dns_name_compare_func(dns_resource_key_name(x), dns_resource_key_name(y));
