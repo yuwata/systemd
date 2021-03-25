@@ -85,6 +85,7 @@ intmax_t json_variant_integer(JsonVariant *v);
 uintmax_t json_variant_unsigned(JsonVariant *v);
 long double json_variant_real(JsonVariant *v);
 bool json_variant_boolean(JsonVariant *v);
+int json_variant_byte_array(JsonVariant *v, uint8_t **ret, size_t *ret_size);
 
 JsonVariantType json_variant_type(JsonVariant *v);
 bool json_variant_has_type(JsonVariant *v, JsonVariantType type);

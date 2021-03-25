@@ -1035,6 +1035,53 @@ mismatch:
         return 0.0;
 }
 
+int json_variant_byte_array(JsonVariant *v, uint8_t **ret, size_t *ret_size) {
+        _cleanup_free_ uint8_t *array = NULL;
+        JsonVariant *i;
+        size_t n, k = 0;
+
+        assert(ret);
+        assert(ret_size);
+
+        if (!v)
+                goto empty;
+
+        if (!json_variant_is_array(v))
+                return -EINVAL;
+
+        n = json_variant_elements(v);
+        if (n == 0)
+                goto empty;
+
+        array = new(uint8_t, n);
+        if (!array)
+                return -ENOMEM;
+
+        JSON_VARIANT_ARRAY_FOREACH(i, v) {
+                uintmax_t u;
+
+                if (!json_variant_is_unsigned(i))
+                        return -EINVAL;
+
+                u = json_variant_unsigned(i);
+                if (u > UINT8_MAX)
+                        return -EINVAL;
+
+                array[k++] = u;
+        }
+
+        assert(k == n);
+
+        *ret = TAKE_PTR(array);
+        *ret_size = n;
+        return 0;
+
+empty:
+        *ret = NULL;
+        *ret_size = 0;
+        return 0;
+}
+
 bool json_variant_is_negative(JsonVariant *v) {
         if (!v)
                 goto mismatch;
