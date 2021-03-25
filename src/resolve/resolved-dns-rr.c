@@ -375,7 +375,7 @@ bool dns_resource_key_reduce(DnsResourceKey **a, DnsResourceKey **b) {
         return true;
 }
 
-DnsResourceRecord* dns_resource_record_new(DnsResourceKey *key) {
+static DnsResourceRecord* dns_resource_record_new_internal(void) {
         DnsResourceRecord *rr;
 
         rr = new(DnsResourceRecord, 1);
@@ -384,11 +384,22 @@ DnsResourceRecord* dns_resource_record_new(DnsResourceKey *key) {
 
         *rr = (DnsResourceRecord) {
                 .n_ref = 1,
-                .key = dns_resource_key_ref(key),
                 .expiry = USEC_INFINITY,
                 .n_skip_labels_signer = UINT_MAX,
                 .n_skip_labels_source = UINT_MAX,
         };
+
+        return rr;
+}
+
+DnsResourceRecord* dns_resource_record_new(DnsResourceKey *key) {
+        DnsResourceRecord *rr;
+
+        rr = dns_resource_record_new_internal();
+        if (!rr)
+                return NULL;
+
+        rr->key = dns_resource_key_ref(key);
 
         return rr;
 }
@@ -1857,3 +1868,319 @@ static const char* const dnssec_digest_table[_DNSSEC_DIGEST_MAX_DEFINED] = {
         [DNSSEC_DIGEST_SHA384] = "SHA-384",
 };
 DEFINE_STRING_TABLE_LOOKUP_WITH_FALLBACK(dnssec_digest, int, 255);
+
+int dns_resource_key_to_json(const DnsResourceKey *key, JsonVariant **ret) {
+        assert(key);
+        assert(ret);
+
+        return json_build(ret, JSON_BUILD_OBJECT(
+                                        JSON_BUILD_PAIR("name", JSON_BUILD_STRING(dns_resource_key_name(key))),
+                                        JSON_BUILD_PAIR("class", JSON_BUILD_UNSIGNED(key->class)),
+                                        JSON_BUILD_PAIR("type", JSON_BUILD_UNSIGNED(key->type))));
+}
+
+int json_dispatch_dns_resource_key(const char *name, JsonVariant *variant, JsonDispatchFlags flags, void *userdata) {
+        static const JsonDispatch dns_resource_key_dispatch_table[] = {
+                { "name",  JSON_VARIANT_STRING,   json_dispatch_string, offsetof(DnsResourceKey, _name), JSON_MANDATORY },
+                { "class", JSON_VARIANT_UNSIGNED, json_dispatch_uint16, offsetof(DnsResourceKey, class), JSON_MANDATORY },
+                { "type",  JSON_VARIANT_UNSIGNED, json_dispatch_uint16, offsetof(DnsResourceKey, type),  JSON_MANDATORY },
+                {}
+        };
+        _cleanup_(dns_resource_key_unrefp) DnsResourceKey *key = NULL;
+        DnsResourceKey **ret = userdata;
+        int r;
+
+        assert(variant);
+        assert(ret);
+
+        key = new(DnsResourceKey, 1);
+        if (!key)
+                return -ENOMEM;
+
+        *key = (DnsResourceKey) {
+                .n_ref = 1,
+        };
+
+        r = json_dispatch(variant, dns_resource_key_dispatch_table, NULL, flags, key);
+        if (r < 0)
+                return r;
+
+        *ret = TAKE_PTR(key);
+        return 0;
+}
+
+static int dns_txt_item_to_json(const DnsTxtItem *first, JsonVariant **ret) {
+        size_t n_elements = 0, n_allocated = 0;
+        JsonVariant **elements = NULL;
+        const DnsTxtItem *i;
+        int r;
+
+        assert(ret);
+
+        LIST_FOREACH(items, i, first) {
+                if (!GREEDY_REALLOC(elements, n_allocated, n_elements + 1)) {
+                        r = -ENOMEM;
+                        goto finalize;
+                }
+
+                r = json_variant_new_array_bytes(elements + n_elements, i->data, i->length);
+                if (r < 0)
+                        goto finalize;
+
+                n_elements++;
+        }
+
+        r = json_build(ret, JSON_BUILD_OBJECT(JSON_BUILD_PAIR("items", JSON_BUILD_VARIANT_ARRAY(elements, n_elements))));
+
+finalize:
+        json_variant_unref_many(elements, n_elements);
+        free(elements);
+
+        return r;
+}
+
+static int json_dispatch_dns_txt_item(const char *name, JsonVariant *variant, JsonDispatchFlags flags, void *userdata) {
+        _cleanup_(dns_txt_item_free_allp) DnsTxtItem *first = NULL;
+        DnsTxtItem *end = NULL, **ret = userdata;
+        JsonVariant *i;
+        int r;
+
+        assert(variant);
+        assert(ret);
+
+        JSON_VARIANT_ARRAY_FOREACH(i, variant) {
+                _cleanup_free_ uint8_t *array = NULL;
+                DnsTxtItem *j;
+                size_t n;
+
+                r = json_variant_byte_array(i, &array, &n);
+                if (r < 0)
+                        return r;
+
+                j = malloc0(offsetof(DnsTxtItem, data) + n + 1);
+                if (!j)
+                        return -ENOMEM;
+
+                j->length = n;
+                memcpy(j->data, array, n);
+
+                LIST_INSERT_AFTER(items, first, end, j);
+                end = j;
+        }
+
+        *ret = TAKE_PTR(first);
+        return 0;
+}
+
+#define BUILD_STRING(obj, field) \
+        JSON_BUILD_PAIR(STRINGIFY(field), JSON_BUILD_STRING((obj).field))
+
+#define BUILD_UINT(obj, field) \
+        JSON_BUILD_PAIR(STRINGIFY(field), JSON_BUILD_UNSIGNED((obj).field))
+
+#define BUILD_BYTE(obj, field) \
+        JSON_BUILD_PAIR(STRINGIFY(field), JSON_BUILD_BYTE_ARRAY((obj).field, (obj).field ## _size))
+
+#define BUILD_BITMAP(obj, field) \
+        JSON_BUILD_PAIR(STRINGIFY(field), JSON_BUILD_BYTE_ARRAY((obj).field->bitmaps, (obj).field->n_bitmaps * sizeof(uint64_t)))
+
+static int dns_resource_record_payload_to_json(const DnsResourceRecord *rr, const char **ret_type, JsonVariant **ret_json) {
+        _cleanup_(json_variant_unrefp) JsonVariant *v = NULL;
+        const char *type;
+        int r;
+
+        assert(rr);
+        assert(ret_type);
+        assert(ret_json);
+
+        type = dns_type_to_string(rr->key->type);
+
+        switch(rr->unparsable ? _DNS_TYPE_INVALID : rr->key->type) {
+        case DNS_TYPE_SRV:
+                r = json_build(&v, JSON_BUILD_OBJECT(BUILD_STRING(rr->srv, name),
+                                                     BUILD_UINT(rr->srv, priority),
+                                                     BUILD_UINT(rr->srv, weight),
+                                                     BUILD_UINT(rr->srv, port)));
+                break;
+        case DNS_TYPE_PTR:
+        case DNS_TYPE_NS:
+        case DNS_TYPE_CNAME:
+        case DNS_TYPE_DNAME:
+                r = json_build(&v, JSON_BUILD_OBJECT(BUILD_STRING(rr->ptr, name)));
+                break;
+        case DNS_TYPE_HINFO:
+                r = json_build(&v, JSON_BUILD_OBJECT(BUILD_STRING(rr->hinfo, cpu),
+                                                     BUILD_STRING(rr->hinfo, os)));
+                break;
+        case DNS_TYPE_SPF: /* exactly the same as TXT */
+        case DNS_TYPE_TXT:
+                r = dns_txt_item_to_json(rr->txt.items, &v);
+                break;
+        case DNS_TYPE_A:
+                r = json_build(&v, JSON_BUILD_OBJECT(JSON_BUILD_PAIR("address", JSON_BUILD_BYTE_ARRAY(&rr->a.in_addr, sizeof(struct in_addr)))));
+                break;
+        case DNS_TYPE_AAAA:
+                r = json_build(&v, JSON_BUILD_OBJECT(JSON_BUILD_PAIR("address", JSON_BUILD_BYTE_ARRAY(&rr->aaaa.in6_addr, sizeof(struct in6_addr)))));
+                break;
+        case DNS_TYPE_SOA:
+                r = json_build(&v, JSON_BUILD_OBJECT(BUILD_STRING(rr->soa, mname),
+                                                     BUILD_STRING(rr->soa, rname),
+                                                     BUILD_UINT(rr->soa, serial),
+                                                     BUILD_UINT(rr->soa, refresh),
+                                                     BUILD_UINT(rr->soa, retry),
+                                                     BUILD_UINT(rr->soa, expire),
+                                                     BUILD_UINT(rr->soa, minimum)));
+                break;
+        case DNS_TYPE_MX:
+                r = json_build(&v, JSON_BUILD_OBJECT(BUILD_UINT(rr->mx, priority),
+                                                     BUILD_STRING(rr->mx, exchange)));
+                break;
+        case DNS_TYPE_LOC:
+                assert(rr->loc.version == 0);
+
+                r = json_build(&v, JSON_BUILD_OBJECT(BUILD_UINT(rr->loc, size),
+                                                     BUILD_UINT(rr->loc, horiz_pre),
+                                                     BUILD_UINT(rr->loc, vert_pre),
+                                                     BUILD_UINT(rr->loc, latitude),
+                                                     BUILD_UINT(rr->loc, longitude),
+                                                     BUILD_UINT(rr->loc, altitude)));
+                break;
+        case DNS_TYPE_DS:
+                r = json_build(&v, JSON_BUILD_OBJECT(BUILD_UINT(rr->ds, key_tag),
+                                                     BUILD_UINT(rr->ds, algorithm),
+                                                     BUILD_UINT(rr->ds, digest_type),
+                                                     BUILD_BYTE(rr->ds, digest)));
+                break;
+        case DNS_TYPE_SSHFP:
+                r = json_build(&v, JSON_BUILD_OBJECT(BUILD_UINT(rr->sshfp, algorithm),
+                                                     BUILD_UINT(rr->sshfp, fptype),
+                                                     BUILD_BYTE(rr->sshfp, fingerprint)));
+                break;
+        case DNS_TYPE_DNSKEY:
+                r = json_build(&v, JSON_BUILD_OBJECT(BUILD_UINT(rr->dnskey, flags),
+                                                     BUILD_UINT(rr->dnskey, protocol),
+                                                     BUILD_UINT(rr->dnskey, algorithm),
+                                                     BUILD_BYTE(rr->dnskey, key)));
+                break;
+        case DNS_TYPE_RRSIG:
+                r = json_build(&v, JSON_BUILD_OBJECT(BUILD_UINT(rr->rrsig, type_covered),
+                                                     BUILD_UINT(rr->rrsig, algorithm),
+                                                     BUILD_UINT(rr->rrsig, labels),
+                                                     BUILD_UINT(rr->rrsig, original_ttl),
+                                                     BUILD_UINT(rr->rrsig, expiration),
+                                                     BUILD_UINT(rr->rrsig, inception),
+                                                     BUILD_UINT(rr->rrsig, key_tag),
+                                                     BUILD_BYTE(rr->rrsig, signature),
+                                                     BUILD_STRING(rr->rrsig, signer)));
+                break;
+        case DNS_TYPE_NSEC:
+                r = json_build(&v, JSON_BUILD_OBJECT(BUILD_STRING(rr->nsec, next_domain_name),
+                                                     BUILD_BITMAP(rr->nsec, types)));
+                break;
+        case DNS_TYPE_NSEC3:
+                r = json_build(&v, JSON_BUILD_OBJECT(BUILD_UINT(rr->nsec3, algorithm),
+                                                     BUILD_UINT(rr->nsec3, flags),
+                                                     BUILD_UINT(rr->nsec3, iterations),
+                                                     BUILD_BYTE(rr->nsec3, salt),
+                                                     BUILD_BYTE(rr->nsec3, next_hashed_name),
+                                                     BUILD_BITMAP(rr->nsec3, types)));
+                break;
+        case DNS_TYPE_TLSA:
+                r = json_build(&v, JSON_BUILD_OBJECT(BUILD_UINT(rr->tlsa, cert_usage),
+                                                     BUILD_UINT(rr->tlsa, selector),
+                                                     BUILD_UINT(rr->tlsa, matching_type),
+                                                     BUILD_BYTE(rr->tlsa, data)));
+                break;
+        case DNS_TYPE_CAA:
+                r = json_build(&v, JSON_BUILD_OBJECT(BUILD_UINT(rr->caa, flags),
+                                                     BUILD_STRING(rr->caa, tag),
+                                                     BUILD_BYTE(rr->caa, value)));
+                break;
+        case DNS_TYPE_OPENPGPKEY:
+        default:
+                type = "generic";
+                r = json_build(&v, JSON_BUILD_OBJECT(BUILD_BYTE(rr->generic, data)));
+        }
+        if (r < 0)
+                return r;
+
+        *ret_type = type;
+        *ret_json = TAKE_PTR(v);
+        return 0;
+}
+
+#define DISPATCH_BYTE(obj, field) \
+        json_variant_byte_array(json_variant_by_key(variant, STRINGIFY(field)), (uint8_t**) &(obj).field, &(obj).field ## _size);
+
+static int json_dispatch_dns_resource_record_payload(const char *name, JsonVariant *variant, JsonDispatchFlags flags, void *userdata) {
+        static const JsonDispatch srv_dispatch_table[] = {
+                { "name",     JSON_VARIANT_STRING,   json_dispatch_string, offsetof(DnsResourceRecord, srv.name),     JSON_MANDATORY },
+                { "priority", JSON_VARIANT_UNSIGNED, json_dispatch_uint16, offsetof(DnsResourceRecord, srv.priority), JSON_MANDATORY },
+                { "weight",   JSON_VARIANT_UNSIGNED, json_dispatch_uint16, offsetof(DnsResourceRecord, srv.weight),   JSON_MANDATORY },
+                { "port",     JSON_VARIANT_UNSIGNED, json_dispatch_uint16, offsetof(DnsResourceRecord, srv.port),     JSON_MANDATORY },
+                {}
+        };
+        DnsResourceRecord *rr = userdata;
+        uint16_t type;
+
+        assert(rr);
+
+        if (!name)
+                return -EINVAL;
+
+        type = dns_type_from_string(name);
+
+        switch(type) {
+        case DNS_TYPE_SRV:
+                return json_dispatch(variant, srv_dispatch_table, NULL, flags, rr);
+        default:
+                return DISPATCH_BYTE(rr->generic, data);
+        }
+}
+
+int dns_resource_record_to_json(const DnsResourceRecord *rr, JsonVariant **ret) {
+        _cleanup_(json_variant_unrefp) JsonVariant *key = NULL, *payload = NULL;
+        const char *type;
+        int r;
+
+        assert(rr);
+        assert(ret);
+
+        r = dns_resource_key_to_json(rr->key, &key);
+        if (r < 0)
+                return r;
+
+        r = dns_resource_record_payload_to_json(rr, &type, &payload);
+        if (r < 0)
+                return r;
+
+        return json_build(ret, JSON_BUILD_OBJECT(JSON_BUILD_PAIR("key", JSON_BUILD_VARIANT(key)),
+                                                 JSON_BUILD_PAIR("unparsable", JSON_BUILD_BOOLEAN(rr->unparsable)),
+                                                 JSON_BUILD_PAIR(type, JSON_BUILD_VARIANT(payload))));
+}
+
+int json_dispatch_dns_resource_record(const char *name, JsonVariant *variant, JsonDispatchFlags flags, void *userdata) {
+        static const JsonDispatch dns_resource_record_dispatch_table[] = {
+                { "key",        JSON_VARIANT_OBJECT,  json_dispatch_dns_resource_key,            offsetof(DnsResourceRecord, key),        JSON_MANDATORY },
+                { "unparsable", JSON_VARIANT_BOOLEAN, json_dispatch_boolean,                     offsetof(DnsResourceRecord, unparsable), JSON_MANDATORY },
+                { POINTER_MAX,  JSON_VARIANT_OBJECT,  json_dispatch_dns_resource_record_payload, 0,                                       JSON_MANDATORY },
+                {}
+        };
+        _cleanup_(dns_resource_record_unrefp) DnsResourceRecord *rr = NULL;
+        DnsResourceRecord **ret = userdata;
+        int r;
+
+        assert(variant);
+        assert(ret);
+
+        rr = dns_resource_record_new_internal();
+        if (!rr)
+                return -ENOMEM;
+
+        r = json_dispatch(variant, dns_resource_record_dispatch_table, NULL, 0, rr);
+        if (r < 0)
+                return r;
+
+        *ret = TAKE_PTR(rr);
+        return 0;
+}

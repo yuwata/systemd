@@ -7,6 +7,7 @@
 #include "dns-type.h"
 #include "hashmap.h"
 #include "in-addr-util.h"
+#include "json.h"
 #include "list.h"
 #include "string-util.h"
 #include "time-util.h"
@@ -327,6 +328,7 @@ bool dns_resource_record_is_link_local_address(DnsResourceRecord *rr);
 int dns_resource_record_get_cname_target(DnsResourceKey *key, DnsResourceRecord *cname, char **ret);
 
 DnsTxtItem *dns_txt_item_free_all(DnsTxtItem *i);
+DEFINE_TRIVIAL_CLEANUP_FUNC(DnsTxtItem*, dns_txt_item_free_all);
 int dns_txt_item_compare_func(const DnsTxtItem *a, const DnsTxtItem *b);
 DnsTxtItem *dns_txt_item_copy(DnsTxtItem *i);
 int dns_txt_item_new_empty(DnsTxtItem **ret);
@@ -342,3 +344,8 @@ int dnssec_algorithm_from_string(const char *s) _pure_;
 
 int dnssec_digest_to_string_alloc(int i, char **ret);
 int dnssec_digest_from_string(const char *s) _pure_;
+
+int dns_resource_key_to_json(const DnsResourceKey *key, JsonVariant **ret);
+int json_dispatch_dns_resource_key(const char *name, JsonVariant *variant, JsonDispatchFlags flags, void *userdata);
+int dns_resource_record_to_json(const DnsResourceRecord *rr, JsonVariant **ret);
+int json_dispatch_dns_resource_record(const char *name, JsonVariant *variant, JsonDispatchFlags flags, void *userdata);
