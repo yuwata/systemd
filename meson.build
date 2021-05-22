@@ -582,38 +582,39 @@ assert(long_max > 100000)
 conf.set_quoted('LONG_MAX_STR', f'@long_max@')
 
 foreach ident : [
-        ['renameat2',         '''#include <stdio.h>'''],        # since musl-1.2.6
-        ['set_mempolicy',     '''#include <sys/syscall.h>'''],  # declared at numaif.h provided by libnuma, which we do not use
-        ['get_mempolicy',     '''#include <sys/syscall.h>'''],  # declared at numaif.h provided by libnuma, which we do not use
-        ['strerrorname_np',   '''#include <string.h>'''],       # since glibc-2.32
-        ['mallinfo2',         '''#include <malloc.h>'''],       # since glibc-2.33
-        ['execveat',          '''#include <unistd.h>'''],       # since glibc-2.34
-        ['close_range',       '''#include <unistd.h>'''],       # since glibc-2.34
-        ['epoll_pwait2',      '''#include <sys/epoll.h>'''],    # since glibc-2.35
-        ['fsconfig',          '''#include <sys/mount.h>'''],    # since glibc-2.36
-        ['fsmount',           '''#include <sys/mount.h>'''],    # since glibc-2.36
-        ['fsopen',            '''#include <sys/mount.h>'''],    # since glibc-2.36
-        ['mount_setattr',     '''#include <sys/mount.h>'''],    # since glibc-2.36
-        ['move_mount',        '''#include <sys/mount.h>'''],    # since glibc-2.36
-        ['open_tree',         '''#include <sys/mount.h>'''],    # since glibc-2.36
-        ['pidfd_open',        '''#include <sys/pidfd.h>'''],    # since glibc-2.36
-        ['pidfd_send_signal', '''#include <sys/pidfd.h>'''],    # since glibc-2.36
-        ['pidfd_spawn',       '''#include <spawn.h>'''],        # since glibc-2.39
-        ['sched_setattr',     '''#include <sched.h>'''],        # since glibc-2.41
-        ['ioprio_get',        '''#include <sched.h>'''],        # no known header declares ioprio_get
-        ['ioprio_set',        '''#include <sched.h>'''],        # no known header declares ioprio_set
-        ['rt_tgsigqueueinfo', '''#include <signal.h>'''],       # no known header declares rt_tgsigqueueinfo
-        ['open_tree_attr',    '''#include <sys/mount.h>'''],    # no known header declares open_tree_attr
-        ['quotactl_fd',       '''#include <sys/quota.h>'''],    # no known header declares quotactl_fd
-        ['fchmodat2',         '''#include <sys/stat.h>'''],     # no known header declares fchmodat2
-        ['bpf',               '''#include <sys/syscall.h>'''],  # no known header declares bpf
-        ['kcmp',              '''#include <sys/syscall.h>'''],  # no known header declares kcmp
-        ['keyctl',            '''#include <sys/syscall.h>'''],  # no known header declares keyctl
-        ['add_key',           '''#include <sys/syscall.h>'''],  # no known header declares add_key
-        ['request_key',       '''#include <sys/syscall.h>'''],  # no known header declares request_key
-        ['setxattrat',        '''#include <sys/xattr.h>'''],    # no known header declares setxattrat
-        ['removexattrat',     '''#include <sys/xattr.h>'''],    # no known header declares removexattrat
-        ['pivot_root',        '''#include <unistd.h>'''],       # no known header declares pivot_root
+        ['renameat2',           '''#include <stdio.h>'''],        # since musl-1.2.6
+        ['parse_printf_format', '''#include <printf.h>'''],       # musl does not provide it
+        ['set_mempolicy',       '''#include <sys/syscall.h>'''],  # declared at numaif.h provided by libnuma, which we do not use
+        ['get_mempolicy',       '''#include <sys/syscall.h>'''],  # declared at numaif.h provided by libnuma, which we do not use
+        ['strerrorname_np',     '''#include <string.h>'''],       # since glibc-2.32
+        ['mallinfo2',           '''#include <malloc.h>'''],       # since glibc-2.33
+        ['execveat',            '''#include <unistd.h>'''],       # since glibc-2.34
+        ['close_range',         '''#include <unistd.h>'''],       # since glibc-2.34
+        ['epoll_pwait2',        '''#include <sys/epoll.h>'''],    # since glibc-2.35
+        ['fsconfig',            '''#include <sys/mount.h>'''],    # since glibc-2.36
+        ['fsmount',             '''#include <sys/mount.h>'''],    # since glibc-2.36
+        ['fsopen',              '''#include <sys/mount.h>'''],    # since glibc-2.36
+        ['mount_setattr',       '''#include <sys/mount.h>'''],    # since glibc-2.36
+        ['move_mount',          '''#include <sys/mount.h>'''],    # since glibc-2.36
+        ['open_tree',           '''#include <sys/mount.h>'''],    # since glibc-2.36
+        ['pidfd_open',          '''#include <sys/pidfd.h>'''],    # since glibc-2.36
+        ['pidfd_send_signal',   '''#include <sys/pidfd.h>'''],    # since glibc-2.36
+        ['pidfd_spawn',         '''#include <spawn.h>'''],        # since glibc-2.39
+        ['sched_setattr',       '''#include <sched.h>'''],        # since glibc-2.41
+        ['ioprio_get',          '''#include <sched.h>'''],        # no known header declares ioprio_get
+        ['ioprio_set',          '''#include <sched.h>'''],        # no known header declares ioprio_set
+        ['rt_tgsigqueueinfo',   '''#include <signal.h>'''],       # no known header declares rt_tgsigqueueinfo
+        ['open_tree_attr',      '''#include <sys/mount.h>'''],    # no known header declares open_tree_attr
+        ['quotactl_fd',         '''#include <sys/quota.h>'''],    # no known header declares quotactl_fd
+        ['fchmodat2',           '''#include <sys/stat.h>'''],     # no known header declares fchmodat2
+        ['bpf',                 '''#include <sys/syscall.h>'''],  # no known header declares bpf
+        ['kcmp',                '''#include <sys/syscall.h>'''],  # no known header declares kcmp
+        ['keyctl',              '''#include <sys/syscall.h>'''],  # no known header declares keyctl
+        ['add_key',             '''#include <sys/syscall.h>'''],  # no known header declares add_key
+        ['request_key',         '''#include <sys/syscall.h>'''],  # no known header declares request_key
+        ['setxattrat',          '''#include <sys/xattr.h>'''],    # no known header declares setxattrat
+        ['removexattrat',       '''#include <sys/xattr.h>'''],    # no known header declares removexattrat
+        ['pivot_root',          '''#include <unistd.h>'''],       # no known header declares pivot_root
 ]
 
         have = cc.has_function(ident[0], prefix : ident[1], args : '-D_GNU_SOURCE')
