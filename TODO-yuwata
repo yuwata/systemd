@@ -1,0 +1,60 @@
+networkd
+- Add many many json entries:
+    * LLDP entries,
+    * DHCP server lease,
+    * sd_dhcp_lease, sd_dhcp6_lease, sd_ndisc_router.
+- Improve logs:
+    * introduce log_address_error_errno() or friends,
+    * generate more informative error message in netlink handler.
+- Introduce MaxLogLevel= in .network and .netdev.
+- Add more tests:
+    * for 'networkctl reconfigure',
+    * for generated json formats,
+    * for IPv6RoutePrefix=.
+- Support reconfiguring netdevs.
+- Save runtime settings (DNS, NTP, and etc), and read it when networkd is restarted.
+  (resolved does so)
+- Save WireGuard sessions and read it when networkd is restarted.
+- Add netns support (#14915):
+    * make PID1 support named netns,
+    * introduce varlink methods:
+        1. describe: dump manager and link info
+        2. reload: reloading .network files
+        3. reconfigure: reconfigure interface
+      Note, the describe method should not require any privilege, but 2. and 3. require.
+      Does the current varlink implementation support that?
+      Or, two varlink server should run in networkd??
+    * introduce Namespace= setting in [Network] or [Link] section to transport interfaces to the specified namespace.
+    * introduce Namespace= setting in [Peer] section for veth.
+    * introduce Namespace= setting in [Match] section to control which file should be loaded.
+- Add TC filter support (#18389).
+- Set expiration time for DHCPv4 routes.
+- Introduce sd_dhcp_lease_get_timestamp().
+- IPv4ACD not supported on bond?
+- Improve L2TP handling:
+    * introduce 'networkctl l2tp-connect' and 'l2tp-disconnect'.
+- Reconsider [Match] Name= or OriginalName= logic.
+
+networkctl
+- Use json data and not directly call netlink command or read udev database.
+- Introduce 'networkctl cat' and `networkctl edit`
+- Introduce 'networkctl speed-meter' which tentatively enables speed meter, show speed periodically,
+  and disable it on exit.
+
+libsystemd-network
+- Talos security advisory. See #16774.
+
+sd-device
+- Use new path utils in syspath handling.
+- Revert 70160c6eeee07ac6aa817826d13e8eff9563ce1e, see comment in #20039.
+
+resolved
+- Introduce 'resolvectl dump-cache'
+- Introduce the way to control which interface will be managed (#14751).
+- Fix handling of interface specifier in DNS server (#18764).
+
+Other
+- Introduce log domain
+
+Fedora
+- systemd-user pam config is installed at both /etc/pam.d and /usr/lib/pam.d.
