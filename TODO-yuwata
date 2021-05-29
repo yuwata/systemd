@@ -1,0 +1,44 @@
+networkd
+- Also introduce UplinkInterface= for DHCPv6-PD.
+- Use request queue for configuring
+    * TC,
+    * SR-IOV,
+    * non-stacked netdevs (bridge, bond, vrf, batman) and independent tunnels.
+- Listen wlan info change event.
+- Merge Link::addresses, Link::addresses_foreign, and many other sets, then introduce enum AddressType
+  and enum AddressStateFlag.
+- Add many many json entries, especially about dhcp leases, and use them in networkctl.
+- Improve logs. Downgrade netlink message attribute error,
+  and generate more informative error message.
+- Introduce log_address_error_errno() or friends.
+- Introduce MaxLogLevel= in .network and .netdev.
+- Always enable dbus interface for dhcp server lease?
+- Extract functionality of lldp-tx as sd-lldp-tx or so?
+- maybe introduce ref/unref logic to Address, Route, Rule, etc. What happens when e.g.
+  an address is dropped, and the same address is configured before the netlink reply is received?
+- further header cleanups.
+- add more tests for 'networkctl reconfigure'.
+- Maybe, make Network* in Link object const, to prevent it is modified.
+- DHCPv6 client and ndisc requires IPv6LL? Maybe, we need to update link_acquire_ipv6_conf().
+- does IPv6RoutePrefix= work correctly? We need to add tests.
+
+networkctl
+- use json data and not directly call netlink command or read udev database.
+- introduce 'networkctl cat' and `networkctl edit`
+- introduce 'networkctl speed-meter' which tentatively enables speed meter, show speed periodically,
+  and disable it on exit.
+
+sd-device
+- use new path utils in syspath handling, e.g. extracting driver subsystem
+
+libsystemd-network
+- reconsider [Match] Name= or OriginalName= logic.
+- dhcp6-client state transition is spurious...
+- Taros security advisory
+
+Other
+- introduce log domain
+- introduce 'resolvectl dump-cache'
+
+Fedora
+- systemd-user pam config is installed at both /etc/pam.d and /usr/lib/pam.d.
