@@ -168,6 +168,12 @@ int sd_ipv4ll_set_callback(sd_ipv4ll *ll, sd_ipv4ll_callback_t cb, void *userdat
         return 0;
 }
 
+int sd_ipv4ll_set_check_mac_callback(sd_ipv4ll *ll, sd_ipv4acd_check_mac_callback_t cb, void *userdata) {
+        assert_return(ll, -EINVAL);
+
+        return sd_ipv4acd_set_check_mac_callback(ll->acd, cb, userdata);
+}
+
 int sd_ipv4ll_get_address(sd_ipv4ll *ll, struct in_addr *address) {
         assert_return(ll, -EINVAL);
         assert_return(address, -EINVAL);
