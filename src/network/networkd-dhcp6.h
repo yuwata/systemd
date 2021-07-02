@@ -16,15 +16,18 @@ typedef enum DHCP6ClientStartMode {
 
 typedef struct Link Link;
 typedef struct Manager Manager;
+typedef struct Address Address;
+typedef struct Route Route;
 
 typedef struct DHCP6DelegatedPrefix {
-        struct in6_addr prefix;     /* Prefix assigned to the link */
+        Link *upstream;
+        Link *downstream;
         struct in6_addr pd_prefix;  /* PD prefix provided by DHCP6 lease */
-        Link *link;
+        struct in6_addr prefix;     /* Prefix assigned to the downstream */
+        Address *address;           /* Address assigned to the downstream */
+        Route *route;               /* Route assigned to the downstream */
+        bool marked;                /* Used when GC'ing old prefix */
 } DHCP6DelegatedPrefix;
-
-DHCP6DelegatedPrefix *dhcp6_pd_free(DHCP6DelegatedPrefix *p);
-DEFINE_TRIVIAL_CLEANUP_FUNC(DHCP6DelegatedPrefix*, dhcp6_pd_free);
 
 bool link_dhcp6_with_address_enabled(Link *link);
 bool link_dhcp6_pd_is_enabled(Link *link);

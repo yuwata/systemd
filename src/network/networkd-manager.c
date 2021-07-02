@@ -458,9 +458,6 @@ Manager* manager_free(Manager *m) {
 
         m->request_queue = ordered_set_free(m->request_queue);
 
-        m->dhcp6_prefixes = hashmap_free_with_destructor(m->dhcp6_prefixes, dhcp6_pd_free);
-        m->dhcp6_pd_prefixes = set_free_with_destructor(m->dhcp6_pd_prefixes, dhcp6_pd_free);
-
         m->dirty_links = set_free_with_destructor(m->dirty_links, link_unref);
         m->links_requesting_uuid = set_free_with_destructor(m->links_requesting_uuid, link_unref);
         m->links_by_name = hashmap_free(m->links_by_name);

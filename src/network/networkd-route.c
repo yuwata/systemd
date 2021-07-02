@@ -7,6 +7,7 @@
 #include "alloc-util.h"
 #include "netlink-util.h"
 #include "networkd-address.h"
+#include "networkd-dhcp6.h"
 #include "networkd-ipv4ll.h"
 #include "networkd-manager.h"
 #include "networkd-network.h"
@@ -269,6 +270,7 @@ Route *route_free(Route *route) {
         network_config_section_free(route->section);
 
         if (route->link) {
+                DHCP6DelegatedPrefix *p;
                 NDiscInfo *info;
 
                 set_remove(route->link->routes, route);
@@ -276,12 +278,13 @@ Route *route_free(Route *route) {
                 set_remove(route->link->dhcp_routes, route);
                 set_remove(route->link->dhcp_routes_old, route);
                 set_remove(route->link->dhcp6_routes, route);
-                set_remove(route->link->dhcp6_routes_old, route);
-                set_remove(route->link->dhcp6_pd_routes, route);
-                set_remove(route->link->dhcp6_pd_routes_old, route);
 
                 HASHMAP_FOREACH(info, route->link->ndisc_info_by_router)
                         set_remove(info->routes, route);
+
+                HASHMAP_FOREACH(p, route->link->dhcp6_pd_downstream_prefixes)
+                        if (p->route == route)
+                                p->route = NULL;
         }
 
         if (route->manager) {

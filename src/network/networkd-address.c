@@ -9,6 +9,7 @@
 #include "netlink-util.h"
 #include "networkd-address-pool.h"
 #include "networkd-address.h"
+#include "networkd-dhcp6.h"
 #include "networkd-ipv4acd.h"
 #include "networkd-manager.h"
 #include "networkd-network.h"
@@ -151,6 +152,7 @@ Address *address_free(Address *address) {
         }
 
         if (address->link) {
+                DHCP6DelegatedPrefix *p;
                 NDiscInfo *info;
 
                 set_remove(address->link->addresses, address);
@@ -162,12 +164,13 @@ Address *address_free(Address *address) {
                 if (address->link->dhcp_address_old == address)
                         address->link->dhcp_address_old = NULL;
                 set_remove(address->link->dhcp6_addresses, address);
-                set_remove(address->link->dhcp6_addresses_old, address);
-                set_remove(address->link->dhcp6_pd_addresses, address);
-                set_remove(address->link->dhcp6_pd_addresses_old, address);
 
                 HASHMAP_FOREACH(info, address->link->ndisc_info_by_router)
                         set_remove(info->addresses, address);
+
+                HASHMAP_FOREACH(p, address->link->dhcp6_pd_downstream_prefixes)
+                        if (p->address == address)
+                                p->address = NULL;
 
                 if (address->family == AF_INET6 &&
                     in6_addr_equal(&address->in_addr.in6, &address->link->ipv6ll_address))

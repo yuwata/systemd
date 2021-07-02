@@ -154,20 +154,14 @@ typedef struct Link {
 
         sd_dhcp6_client *dhcp6_client;
         sd_dhcp6_lease *dhcp6_lease;
-        Set *dhcp6_addresses, *dhcp6_addresses_old;
-        Set *dhcp6_routes, *dhcp6_routes_old;
-        Set *dhcp6_pd_prefixes;
-        Set *dhcp6_pd_addresses, *dhcp6_pd_addresses_old;
-        Set *dhcp6_pd_routes, *dhcp6_pd_routes_old;
-        unsigned dhcp6_address_messages;
-        unsigned dhcp6_route_messages;
-        unsigned dhcp6_pd_address_messages;
-        unsigned dhcp6_pd_route_messages;
-        bool dhcp6_address_configured:1;
-        bool dhcp6_route_configured:1;
-        bool dhcp6_pd_address_configured:1;
-        bool dhcp6_pd_route_configured:1;
-        bool dhcp6_pd_prefixes_assigned:1;
+        Set *dhcp6_addresses;
+        Set *dhcp6_routes;
+        Hashmap *dhcp6_pd_prefixes;
+        Hashmap *dhcp6_pd_downstream_prefixes;
+        unsigned dhcp6_messages;
+        unsigned dhcp6_pd_messages;
+        bool dhcp6_configured:1;
+        bool dhcp6_pd_configured:1;
 
         /* This is about LLDP reception */
         sd_lldp *lldp;
