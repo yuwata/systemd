@@ -80,7 +80,7 @@ static int netdev_geneve_create(NetDev *netdev) {
         if (r < 0)
                 return log_netdev_error_errno(netdev, r, "Could not append IFLA_LINKINFO attribute: %m");
 
-        r = sd_netlink_message_open_container_union(m, IFLA_INFO_DATA, netdev_kind_to_string(netdev->kind));
+        r = sd_netlink_message_open_container_union_by_string(m, IFLA_INFO_DATA, netdev_kind_to_string(netdev->kind));
         if (r < 0)
                 return log_netdev_error_errno(netdev, r, "Could not append IFLA_INFO_DATA attribute: %m");
 

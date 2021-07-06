@@ -65,7 +65,7 @@ static int token_bucket_filter_fill_message(Link *link, QDisc *qdisc, sd_netlink
                         return log_link_error_errno(link, r, "Failed to calculate mtu size: %m");
         }
 
-        r = sd_netlink_message_open_container_union(req, TCA_OPTIONS, "tbf");
+        r = sd_netlink_message_open_container_union_by_string(req, TCA_OPTIONS, "tbf");
         if (r < 0)
                 return log_link_error_errno(link, r, "Could not open container TCA_OPTIONS: %m");
 

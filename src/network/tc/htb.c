@@ -30,7 +30,7 @@ static int hierarchy_token_bucket_fill_message(Link *link, QDisc *qdisc, sd_netl
         opt.rate2quantum = htb->rate_to_quantum;
         opt.defcls = htb->default_class;
 
-        r = sd_netlink_message_open_container_union(req, TCA_OPTIONS, "htb");
+        r = sd_netlink_message_open_container_union_by_string(req, TCA_OPTIONS, "htb");
         if (r < 0)
                 return log_link_error_errno(link, r, "Could not open container TCA_OPTIONS: %m");
 
@@ -204,7 +204,7 @@ static int hierarchy_token_bucket_class_fill_message(Link *link, TClass *tclass,
         if (r < 0)
                 return log_link_error_errno(link, r, "Failed to calculate ceil rate table: %m");
 
-        r = sd_netlink_message_open_container_union(req, TCA_OPTIONS, "htb");
+        r = sd_netlink_message_open_container_union_by_string(req, TCA_OPTIONS, "htb");
         if (r < 0)
                 return log_link_error_errno(link, r, "Could not open container TCA_OPTIONS: %m");
 

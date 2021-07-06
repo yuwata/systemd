@@ -34,7 +34,7 @@ static int fair_queueing_fill_message(Link *link, QDisc *qdisc, sd_netlink_messa
 
         fq = FQ(qdisc);
 
-        r = sd_netlink_message_open_container_union(req, TCA_OPTIONS, "fq");
+        r = sd_netlink_message_open_container_union_by_string(req, TCA_OPTIONS, "fq");
         if (r < 0)
                 return log_link_error_errno(link, r, "Could not open container TCA_OPTIONS: %m");
 

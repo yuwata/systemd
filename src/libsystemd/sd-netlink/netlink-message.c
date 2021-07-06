@@ -612,7 +612,7 @@ int sd_netlink_message_open_container(sd_netlink_message *m, unsigned short type
         return 0;
 }
 
-int sd_netlink_message_open_container_union(sd_netlink_message *m, unsigned short type, const char *key) {
+int sd_netlink_message_open_container_union_by_string(sd_netlink_message *m, unsigned short type, const char *key) {
         const NLTypeSystemUnion *type_system_union;
         int r;
 
@@ -631,6 +631,38 @@ int sd_netlink_message_open_container_union(sd_netlink_message *m, unsigned shor
                 return r;
 
         r = sd_netlink_message_append_string(m, type_system_union_get_match_attribute(type_system_union), key);
+        if (r < 0)
+                return r;
+
+        /* do we ever need non-null size */
+        r = add_rtattr(m, type | NLA_F_NESTED, NULL, 0);
+        if (r < 0)
+                return r;
+
+        m->containers[m->n_containers++].offset = r;
+
+        return 0;
+}
+
+int sd_netlink_message_open_container_union_by_u32(sd_netlink_message *m, unsigned short type, uint32_t key) {
+        const NLTypeSystemUnion *type_system_union;
+        int r;
+
+        assert_return(m, -EINVAL);
+        assert_return(!m->sealed, -EPERM);
+        assert_return(m->n_containers < (NETLINK_CONTAINER_DEPTH - 1), -ERANGE);
+
+        r = type_system_get_type_system_union(m->containers[m->n_containers].type_system, &type_system_union, type);
+        if (r < 0)
+                return r;
+
+        r = type_system_union_get_type_system_by_u32(type_system_union,
+                                                     &m->containers[m->n_containers + 1].type_system,
+                                                     key);
+        if (r < 0)
+                return r;
+
+        r = sd_netlink_message_append_u32(m, type_system_union_get_match_attribute(type_system_union), key);
         if (r < 0)
                 return r;
 
@@ -1163,7 +1195,7 @@ int sd_netlink_message_enter_container(sd_netlink_message *m, unsigned short typ
                         return r;
 
                 switch (type_system_union_get_match_type(type_system_union)) {
-                case NL_MATCH_SIBLING: {
+                case NL_MATCH_STRING: {
                         const char *key;
 
                         r = sd_netlink_message_read_string(
@@ -1176,6 +1208,24 @@ int sd_netlink_message_enter_container(sd_netlink_message *m, unsigned short typ
                         r = type_system_union_get_type_system_by_string(type_system_union,
                                                                         &type_system,
                                                                         key);
+                        if (r < 0)
+                                return r;
+
+                        break;
+                }
+                case NL_MATCH_U32: {
+                        uint32_t key;
+
+                        r = sd_netlink_message_read_u32(
+                                        m,
+                                        type_system_union_get_match_attribute(type_system_union),
+                                        &key);
+                        if (r < 0)
+                                return r;
+
+                        r = type_system_union_get_type_system_by_u32(type_system_union,
+                                                                     &type_system,
+                                                                     key);
                         if (r < 0)
                                 return r;
 

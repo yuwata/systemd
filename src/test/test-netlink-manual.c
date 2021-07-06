@@ -66,7 +66,7 @@ static int test_tunnel_configure(sd_netlink *rtnl) {
 
         assert_se(sd_netlink_message_open_container(m, IFLA_LINKINFO) >= 0);
 
-        assert_se(sd_netlink_message_open_container_union(m, IFLA_INFO_DATA, "ipip") >= 0);
+        assert_se(sd_netlink_message_open_container_union_by_string(m, IFLA_INFO_DATA, "ipip") >= 0);
 
         inet_pton(AF_INET, "192.168.21.1", &local.s_addr);
         assert_se(sd_netlink_message_append_u32(m, IFLA_IPTUN_LOCAL, local.s_addr) >= 0);
@@ -90,7 +90,7 @@ static int test_tunnel_configure(sd_netlink *rtnl) {
 
         assert_se(sd_netlink_message_open_container(n, IFLA_LINKINFO) >= 0);
 
-        assert_se(sd_netlink_message_open_container_union(n, IFLA_INFO_DATA, "sit") >= 0);
+        assert_se(sd_netlink_message_open_container_union_by_string(n, IFLA_INFO_DATA, "sit") >= 0);
 
         assert_se(sd_netlink_message_append_u8(n, IFLA_IPTUN_PROTO, IPPROTO_IPIP) >= 0);
 

@@ -29,7 +29,8 @@ enum {
 };
 
 typedef enum NLMatchType {
-        NL_MATCH_SIBLING,
+        NL_MATCH_STRING,
+        NL_MATCH_U32,
         NL_MATCH_PROTOCOL,
 } NLMatchType;
 
@@ -57,4 +58,5 @@ int type_system_get_type_system_union(const NLTypeSystem *type_system, const NLT
 NLMatchType type_system_union_get_match_type(const NLTypeSystemUnion *type_system_union);
 uint16_t type_system_union_get_match_attribute(const NLTypeSystemUnion *type_system_union);
 int type_system_union_get_type_system_by_string(const NLTypeSystemUnion *type_system_union, const NLTypeSystem **ret, const char *key);
+int type_system_union_get_type_system_by_u32(const NLTypeSystemUnion *type_system_union, const NLTypeSystem **ret, uint32_t u32);
 int type_system_union_get_type_system_by_protocol(const NLTypeSystemUnion *type_system_union, const NLTypeSystem **ret, uint16_t protocol);

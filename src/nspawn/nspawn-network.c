@@ -160,7 +160,7 @@ static int add_veth(
         if (r < 0)
                 return log_error_errno(r, "Failed to open netlink container: %m");
 
-        r = sd_netlink_message_open_container_union(m, IFLA_INFO_DATA, "veth");
+        r = sd_netlink_message_open_container_union_by_string(m, IFLA_INFO_DATA, "veth");
         if (r < 0)
                 return log_error_errno(r, "Failed to open netlink container: %m");
 
@@ -373,7 +373,7 @@ static int create_bridge(sd_netlink *rtnl, const char *bridge_name) {
         if (r < 0)
                 return r;
 
-        r = sd_netlink_message_open_container_union(m, IFLA_INFO_DATA, "bridge");
+        r = sd_netlink_message_open_container_union_by_string(m, IFLA_INFO_DATA, "bridge");
         if (r < 0)
                 return r;
 
@@ -591,7 +591,7 @@ int setup_macvlan(const char *machine_name, pid_t pid, char **ifaces) {
                 if (r < 0)
                         return log_error_errno(r, "Failed to open netlink container: %m");
 
-                r = sd_netlink_message_open_container_union(m, IFLA_INFO_DATA, "macvlan");
+                r = sd_netlink_message_open_container_union_by_string(m, IFLA_INFO_DATA, "macvlan");
                 if (r < 0)
                         return log_error_errno(r, "Failed to open netlink container: %m");
 
@@ -669,7 +669,7 @@ int setup_ipvlan(const char *machine_name, pid_t pid, char **ifaces) {
                 if (r < 0)
                         return log_error_errno(r, "Failed to open netlink container: %m");
 
-                r = sd_netlink_message_open_container_union(m, IFLA_INFO_DATA, "ipvlan");
+                r = sd_netlink_message_open_container_union_by_string(m, IFLA_INFO_DATA, "ipvlan");
                 if (r < 0)
                         return log_error_errno(r, "Failed to open netlink container: %m");
 

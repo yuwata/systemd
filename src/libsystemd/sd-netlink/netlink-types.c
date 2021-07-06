@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include <sys/socket.h>
 #include <linux/can/vxcan.h>
+#include <linux/ethtool_netlink.h>
 #include <linux/netlink.h>
 #include <linux/rtnetlink.h>
 #include <linux/genetlink.h>
@@ -82,6 +83,7 @@ struct NLTypeSystem {
 typedef struct NLTypeSystemUnionElement {
         union {
                 int protocol;
+                uint32_t u32;
                 const char *name;
         };
         NLTypeSystem type_system;
@@ -442,7 +444,7 @@ static const NLTypeSystemUnionElement rtnl_link_info_data_type_systems[] = {
 static const NLTypeSystemUnion rtnl_link_info_data_type_system_union = {
         .count = ELEMENTSOF(rtnl_link_info_data_type_systems),
         .elements = rtnl_link_info_data_type_systems,
-        .match_type = NL_MATCH_SIBLING,
+        .match_type = NL_MATCH_STRING,
         .match_attribute = IFLA_INFO_KIND,
 };
 
@@ -890,7 +892,7 @@ static const NLTypeSystemUnionElement rtnl_tca_option_data_type_systems[] = {
 static const NLTypeSystemUnion rtnl_tca_option_data_type_system_union = {
         .count = ELEMENTSOF(rtnl_tca_option_data_type_systems),
         .elements = rtnl_tca_option_data_type_systems,
-        .match_type = NL_MATCH_SIBLING,
+        .match_type = NL_MATCH_STRING,
         .match_attribute = TCA_KIND,
 };
 
@@ -1051,7 +1053,7 @@ static const NLTypeSystemUnionElement nfnl_expr_data_type_systems[] = {
 static const NLTypeSystemUnion nfnl_nft_data_expr_type_system_union = {
         .count = ELEMENTSOF(nfnl_expr_data_type_systems),
         .elements = nfnl_expr_data_type_systems,
-        .match_type = NL_MATCH_SIBLING,
+        .match_type = NL_MATCH_STRING,
         .match_attribute = NFTA_EXPR_NAME,
 };
 
@@ -1229,6 +1231,536 @@ static const NLType genl_batadv_types[] = {
         [BATADV_ATTR_THROUGHPUT_OVERRIDE]           = { .type = NETLINK_TYPE_U32 },
 };
 
+/***************** genl ethtool type systems *****************/
+
+static const NLType genl_ethtool_header_types[] = {
+        [ETHTOOL_A_HEADER_DEV_INDEX] = { .type = NETLINK_TYPE_U32 },
+        [ETHTOOL_A_HEADER_DEV_NAME]  = { .type = NETLINK_TYPE_STRING, .size = IFNAMSIZ },
+        [ETHTOOL_A_HEADER_FLAGS]     = { .type = NETLINK_TYPE_U32 },
+};
+
+DEFINE_TYPE_SYSTEM(genl_ethtool_header);
+
+static const NLType genl_ethtool_bitset_bit_types[] = {
+        [ETHTOOL_A_BITSET_BIT_INDEX] = { .type = NETLINK_TYPE_U32 },
+        [ETHTOOL_A_BITSET_BIT_NAME]  = { .type = NETLINK_TYPE_STRING },
+        [ETHTOOL_A_BITSET_BIT_VALUE] = { .type = NETLINK_TYPE_FLAG },
+};
+
+DEFINE_TYPE_SYSTEM(genl_ethtool_bitset_bit);
+
+static const NLType genl_ethtool_bitset_bits_types[] = {
+        [ETHTOOL_A_BITSET_BITS_BIT] = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_bitset_bit_type_system },
+};
+
+DEFINE_TYPE_SYSTEM(genl_ethtool_bitset_bits);
+
+static const NLType genl_ethtool_bitset_types[] = {
+        [ETHTOOL_A_BITSET_NOMASK] = { .type = NETLINK_TYPE_FLAG },
+        [ETHTOOL_A_BITSET_SIZE]   = { .type = NETLINK_TYPE_U32 },
+        [ETHTOOL_A_BITSET_BITS]   = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_bitset_bits_type_system },
+        [ETHTOOL_A_BITSET_VALUE]  = { .type = NETLINK_TYPE_BINARY },
+        [ETHTOOL_A_BITSET_MASK]   = { .type = NETLINK_TYPE_BINARY },
+};
+
+DEFINE_TYPE_SYSTEM(genl_ethtool_bitset);
+
+static const NLType genl_ethtool_stringset_string_types[] = {
+        [ETHTOOL_A_STRING_INDEX] = { .type = NETLINK_TYPE_U32 },
+        [ETHTOOL_A_STRING_VALUE] = { .type = NETLINK_TYPE_STRING },
+};
+
+DEFINE_TYPE_SYSTEM(genl_ethtool_stringset_string);
+
+static const NLType genl_ethtool_stringset_strings_types[] = {
+        [ETHTOOL_A_STRINGS_STRING] = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_stringset_string_type_system },
+};
+
+DEFINE_TYPE_SYSTEM(genl_ethtool_stringset_strings);
+
+static const NLType genl_ethtool_stringset_types[] = {
+        [ETHTOOL_A_STRINGSET_ID]      = { .type = NETLINK_TYPE_U32 },
+        [ETHTOOL_A_STRINGSET_COUNT]   = { .type = NETLINK_TYPE_U32 },
+        [ETHTOOL_A_STRINGSET_STRINGS] = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_stringset_strings_type_system },
+};
+
+DEFINE_TYPE_SYSTEM(genl_ethtool_stringset);
+
+static const NLType genl_ethtool_strset_types[] = {
+        [ETHTOOL_A_STRSET_HEADER]      = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_header_type_system },
+        [ETHTOOL_A_STRSET_STRINGSETS]  = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_stringset_type_system },
+        [ETHTOOL_A_STRSET_COUNTS_ONLY] = { .type = NETLINK_TYPE_FLAG },
+};
+
+DEFINE_TYPE_SYSTEM(genl_ethtool_strset);
+
+static const NLType genl_ethtool_linkinfo_types[] = {
+        [ETHTOOL_A_LINKINFO_HEADER]       = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_header_type_system },
+        [ETHTOOL_A_LINKINFO_PORT]         = { .type = NETLINK_TYPE_U8 },
+        [ETHTOOL_A_LINKINFO_PHYADDR]      = { .type = NETLINK_TYPE_U8 },
+        [ETHTOOL_A_LINKINFO_TP_MDIX]      = { .type = NETLINK_TYPE_U8 },
+        [ETHTOOL_A_LINKINFO_TP_MDIX_CTRL] = { .type = NETLINK_TYPE_U8 },
+        [ETHTOOL_A_LINKINFO_TRANSCEIVER]  = { .type = NETLINK_TYPE_U8 },
+};
+
+DEFINE_TYPE_SYSTEM(genl_ethtool_linkinfo);
+
+static const NLType genl_ethtool_linkmode_types[] = {
+        [ETHTOOL_A_LINKMODES_HEADER]             = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_header_type_system },
+        [ETHTOOL_A_LINKMODES_AUTONEG]            = { .type = NETLINK_TYPE_U8 },
+        [ETHTOOL_A_LINKMODES_OURS]               = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_bitset_type_system },
+        [ETHTOOL_A_LINKMODES_PEER]               = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_bitset_type_system },
+        [ETHTOOL_A_LINKMODES_SPEED]              = { .type = NETLINK_TYPE_U32 },
+        [ETHTOOL_A_LINKMODES_DUPLEX]             = { .type = NETLINK_TYPE_U8 },
+        [ETHTOOL_A_LINKMODES_MASTER_SLAVE_CFG]   = { .type = NETLINK_TYPE_U8 },
+        [ETHTOOL_A_LINKMODES_MASTER_SLAVE_STATE] = { .type = NETLINK_TYPE_U8 },
+        [ETHTOOL_A_LINKMODES_LANES]              = { .type = NETLINK_TYPE_U32 },
+};
+
+DEFINE_TYPE_SYSTEM(genl_ethtool_linkmode);
+
+static const NLType genl_ethtool_linkstate_types[] = {
+        [ETHTOOL_A_LINKSTATE_HEADER]       = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_header_type_system },
+        [ETHTOOL_A_LINKSTATE_LINK]         = { .type = NETLINK_TYPE_U8 },
+        [ETHTOOL_A_LINKSTATE_SQI]          = { .type = NETLINK_TYPE_U32 },
+        [ETHTOOL_A_LINKSTATE_SQI_MAX]      = { .type = NETLINK_TYPE_U32 },
+        [ETHTOOL_A_LINKSTATE_EXT_STATE]    = { .type = NETLINK_TYPE_U8 },
+        [ETHTOOL_A_LINKSTATE_EXT_SUBSTATE] = { .type = NETLINK_TYPE_U8 },
+};
+
+DEFINE_TYPE_SYSTEM(genl_ethtool_linkstate);
+
+static const NLType genl_ethtool_debug_types[] = {
+        [ETHTOOL_A_DEBUG_HEADER]  = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_header_type_system },
+        [ETHTOOL_A_DEBUG_MSGMASK] = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_bitset_type_system },
+};
+
+DEFINE_TYPE_SYSTEM(genl_ethtool_debug);
+
+static const NLType genl_ethtool_wol_types[] = {
+        [ETHTOOL_A_WOL_HEADER] = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_header_type_system },
+        [ETHTOOL_A_WOL_MODES]  = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_bitset_type_system },
+        [ETHTOOL_A_WOL_SOPASS] = { .type = NETLINK_TYPE_BINARY },
+};
+
+DEFINE_TYPE_SYSTEM(genl_ethtool_wol);
+
+static const NLType genl_ethtool_feature_types[] = {
+        [ETHTOOL_A_FEATURES_HEADER]   = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_header_type_system },
+        [ETHTOOL_A_FEATURES_HW]       = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_bitset_type_system },
+        [ETHTOOL_A_FEATURES_WANTED]   = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_bitset_type_system },
+        [ETHTOOL_A_FEATURES_ACTIVE]   = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_bitset_type_system },
+        [ETHTOOL_A_FEATURES_NOCHANGE] = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_bitset_type_system },
+};
+
+DEFINE_TYPE_SYSTEM(genl_ethtool_feature);
+
+static const NLType genl_ethtool_privflag_types[] = {
+        [ETHTOOL_A_PRIVFLAGS_HEADER] = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_header_type_system },
+        [ETHTOOL_A_PRIVFLAGS_FLAGS]  = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_bitset_type_system },
+};
+
+DEFINE_TYPE_SYSTEM(genl_ethtool_privflag);
+
+static const NLType genl_ethtool_ring_types[] = {
+        [ETHTOOL_A_RINGS_HEADER]       = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_header_type_system },
+        [ETHTOOL_A_RINGS_RX_MAX]       = { .type = NETLINK_TYPE_U32 },
+        [ETHTOOL_A_RINGS_RX_MINI_MAX]  = { .type = NETLINK_TYPE_U32 },
+        [ETHTOOL_A_RINGS_RX_JUMBO_MAX] = { .type = NETLINK_TYPE_U32 },
+        [ETHTOOL_A_RINGS_TX_MAX]       = { .type = NETLINK_TYPE_U32 },
+        [ETHTOOL_A_RINGS_RX]           = { .type = NETLINK_TYPE_U32 },
+        [ETHTOOL_A_RINGS_RX_MINI]      = { .type = NETLINK_TYPE_U32 },
+        [ETHTOOL_A_RINGS_RX_JUMBO]     = { .type = NETLINK_TYPE_U32 },
+        [ETHTOOL_A_RINGS_TX]           = { .type = NETLINK_TYPE_U32 },
+};
+
+DEFINE_TYPE_SYSTEM(genl_ethtool_ring);
+
+static const NLType genl_ethtool_channel_types[] = {
+        [ETHTOOL_A_CHANNELS_HEADER]         = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_header_type_system },
+        [ETHTOOL_A_CHANNELS_RX_MAX]         = { .type = NETLINK_TYPE_U32 },
+        [ETHTOOL_A_CHANNELS_TX_MAX]         = { .type = NETLINK_TYPE_U32 },
+        [ETHTOOL_A_CHANNELS_OTHER_MAX]      = { .type = NETLINK_TYPE_U32 },
+        [ETHTOOL_A_CHANNELS_COMBINED_MAX]   = { .type = NETLINK_TYPE_U32 },
+        [ETHTOOL_A_CHANNELS_RX_COUNT]       = { .type = NETLINK_TYPE_U32 },
+        [ETHTOOL_A_CHANNELS_TX_COUNT]       = { .type = NETLINK_TYPE_U32 },
+        [ETHTOOL_A_CHANNELS_OTHER_COUNT]    = { .type = NETLINK_TYPE_U32 },
+        [ETHTOOL_A_CHANNELS_COMBINED_COUNT] = { .type = NETLINK_TYPE_U32 },
+};
+
+DEFINE_TYPE_SYSTEM(genl_ethtool_channel);
+
+static const NLType genl_ethtool_coalesce_types[] = {
+        [ETHTOOL_A_COALESCE_HEADER]               = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_header_type_system },
+        [ETHTOOL_A_COALESCE_RX_USECS]             = { .type = NETLINK_TYPE_U32 },
+        [ETHTOOL_A_COALESCE_RX_MAX_FRAMES]        = { .type = NETLINK_TYPE_U32 },
+        [ETHTOOL_A_COALESCE_RX_USECS_IRQ]         = { .type = NETLINK_TYPE_U32 },
+        [ETHTOOL_A_COALESCE_RX_MAX_FRAMES_IRQ]    = { .type = NETLINK_TYPE_U32 },
+        [ETHTOOL_A_COALESCE_TX_USECS]             = { .type = NETLINK_TYPE_U32 },
+        [ETHTOOL_A_COALESCE_TX_MAX_FRAMES]        = { .type = NETLINK_TYPE_U32 },
+        [ETHTOOL_A_COALESCE_TX_USECS_IRQ]         = { .type = NETLINK_TYPE_U32 },
+        [ETHTOOL_A_COALESCE_TX_MAX_FRAMES_IRQ]    = { .type = NETLINK_TYPE_U32 },
+        [ETHTOOL_A_COALESCE_STATS_BLOCK_USECS]    = { .type = NETLINK_TYPE_U32 },
+        [ETHTOOL_A_COALESCE_USE_ADAPTIVE_RX]      = { .type = NETLINK_TYPE_U8 },
+        [ETHTOOL_A_COALESCE_USE_ADAPTIVE_TX]      = { .type = NETLINK_TYPE_U8 },
+        [ETHTOOL_A_COALESCE_PKT_RATE_LOW]         = { .type = NETLINK_TYPE_U32 },
+        [ETHTOOL_A_COALESCE_RX_USECS_LOW]         = { .type = NETLINK_TYPE_U32 },
+        [ETHTOOL_A_COALESCE_RX_MAX_FRAMES_LOW]    = { .type = NETLINK_TYPE_U32 },
+        [ETHTOOL_A_COALESCE_TX_USECS_LOW]         = { .type = NETLINK_TYPE_U32 },
+        [ETHTOOL_A_COALESCE_TX_MAX_FRAMES_LOW]    = { .type = NETLINK_TYPE_U32 },
+        [ETHTOOL_A_COALESCE_PKT_RATE_HIGH]        = { .type = NETLINK_TYPE_U32 },
+        [ETHTOOL_A_COALESCE_RX_USECS_HIGH]        = { .type = NETLINK_TYPE_U32 },
+        [ETHTOOL_A_COALESCE_RX_MAX_FRAMES_HIGH]   = { .type = NETLINK_TYPE_U32 },
+        [ETHTOOL_A_COALESCE_TX_USECS_HIGH]        = { .type = NETLINK_TYPE_U32 },
+        [ETHTOOL_A_COALESCE_TX_MAX_FRAMES_HIGH]   = { .type = NETLINK_TYPE_U32 },
+        [ETHTOOL_A_COALESCE_RATE_SAMPLE_INTERVAL] = { .type = NETLINK_TYPE_U32 },
+};
+
+DEFINE_TYPE_SYSTEM(genl_ethtool_coalesce);
+
+static const NLType genl_ethtool_pause_stat_types[] = {
+        [ETHTOOL_A_PAUSE_STAT_PAD]       = {},
+        [ETHTOOL_A_PAUSE_STAT_TX_FRAMES] = {},
+        [ETHTOOL_A_PAUSE_STAT_RX_FRAMES] = {},
+};
+
+DEFINE_TYPE_SYSTEM(genl_ethtool_pause_stat);
+
+static const NLType genl_ethtool_pause_types[] = {
+        [ETHTOOL_A_PAUSE_HEADER]  = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_header_type_system },
+        [ETHTOOL_A_PAUSE_AUTONEG] = { .type = NETLINK_TYPE_U8 },
+        [ETHTOOL_A_PAUSE_RX]      = { .type = NETLINK_TYPE_U8 },
+        [ETHTOOL_A_PAUSE_TX]      = { .type = NETLINK_TYPE_U8 },
+        [ETHTOOL_A_PAUSE_STATS]   = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_pause_stat_type_system },
+};
+
+DEFINE_TYPE_SYSTEM(genl_ethtool_pause);
+
+static const NLType genl_ethtool_eee_types[] = {
+        [ETHTOOL_A_EEE_HEADER]         = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_header_type_system },
+        [ETHTOOL_A_EEE_MODES_OURS]     = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_bitset_type_system },
+        [ETHTOOL_A_EEE_MODES_PEER]     = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_bitset_type_system },
+        [ETHTOOL_A_EEE_ACTIVE]         = { .type = NETLINK_TYPE_U8 },
+        [ETHTOOL_A_EEE_ENABLED]        = { .type = NETLINK_TYPE_U8 },
+        [ETHTOOL_A_EEE_TX_LPI_ENABLED] = { .type = NETLINK_TYPE_U8 },
+        [ETHTOOL_A_EEE_TX_LPI_TIMER]   = { .type = NETLINK_TYPE_U32 },
+};
+
+DEFINE_TYPE_SYSTEM(genl_ethtool_eee);
+
+static const NLType genl_ethtool_tsinfo_types[] = {
+        [ETHTOOL_A_TSINFO_HEADER]       = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_header_type_system },
+        [ETHTOOL_A_TSINFO_TIMESTAMPING] = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_bitset_type_system },
+        [ETHTOOL_A_TSINFO_TX_TYPES]     = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_bitset_type_system },
+        [ETHTOOL_A_TSINFO_RX_FILTERS]   = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_bitset_type_system },
+        [ETHTOOL_A_TSINFO_PHC_INDEX]    = { .type = NETLINK_TYPE_U32 },
+};
+
+DEFINE_TYPE_SYSTEM(genl_ethtool_tsinfo);
+
+static const NLType genl_ethtool_cable_test_types[] = {
+        [ETHTOOL_A_CABLE_TEST_HEADER] = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_header_type_system },
+};
+
+DEFINE_TYPE_SYSTEM(genl_ethtool_cable_test);
+
+static const NLType genl_ethtool_cable_result_types[] = {
+        [ETHTOOL_A_CABLE_RESULT_PAIR] = { .type = NETLINK_TYPE_U8 },
+        [ETHTOOL_A_CABLE_RESULT_CODE] = { .type = NETLINK_TYPE_U8 },
+};
+
+DEFINE_TYPE_SYSTEM(genl_ethtool_cable_result);
+
+static const NLType genl_ethtool_cable_fault_length_types[] = {
+        [ETHTOOL_A_CABLE_FAULT_LENGTH_PAIR] = { .type = NETLINK_TYPE_U8 },
+        [ETHTOOL_A_CABLE_FAULT_LENGTH_CM]   = { .type = NETLINK_TYPE_U32 },
+};
+
+DEFINE_TYPE_SYSTEM(genl_ethtool_cable_fault_length);
+
+static const NLType genl_ethtool_cable_nest_types[] = {
+        [ETHTOOL_A_CABLE_NEST_RESULT]       = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_cable_result_type_system },
+        [ETHTOOL_A_CABLE_NEST_FAULT_LENGTH] = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_cable_fault_length_type_system },
+};
+
+DEFINE_TYPE_SYSTEM(genl_ethtool_cable_nest);
+
+static const NLType genl_ethtool_cable_test_notify_types[] = {
+        [ETHTOOL_A_CABLE_TEST_NTF_HEADER] = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_header_type_system },
+        [ETHTOOL_A_CABLE_TEST_NTF_STATUS] = { .type = NETLINK_TYPE_U8 },
+        [ETHTOOL_A_CABLE_TEST_NTF_NEST]   = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_cable_nest_type_system },
+};
+
+DEFINE_TYPE_SYSTEM(genl_ethtool_cable_test_notify);
+
+static const NLType genl_ethtool_cable_test_tdr_config_types[] = {
+        [ETHTOOL_A_CABLE_TEST_TDR_CFG_FIRST] = { .type = NETLINK_TYPE_U32 },
+        [ETHTOOL_A_CABLE_TEST_TDR_CFG_LAST]  = { .type = NETLINK_TYPE_U32 },
+        [ETHTOOL_A_CABLE_TEST_TDR_CFG_STEP]  = { .type = NETLINK_TYPE_U32 },
+        [ETHTOOL_A_CABLE_TEST_TDR_CFG_PAIR]  = { .type = NETLINK_TYPE_U8 },
+};
+
+DEFINE_TYPE_SYSTEM(genl_ethtool_cable_test_tdr_config);
+
+static const NLType genl_ethtool_cable_test_tdr_types[] = {
+        [ETHTOOL_A_CABLE_TEST_TDR_HEADER] = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_header_type_system },
+        [ETHTOOL_A_CABLE_TEST_TDR_CFG]    = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_cable_test_tdr_config_type_system },
+};
+
+DEFINE_TYPE_SYSTEM(genl_ethtool_cable_test_tdr);
+
+static const NLType genl_ethtool_cable_amplitude_types[] = {
+        [ETHTOOL_A_CABLE_AMPLITUDE_PAIR] = { .type = NETLINK_TYPE_U8 },
+        [ETHTOOL_A_CABLE_AMPLITUDE_mV]   = { .type = NETLINK_TYPE_S16 },
+};
+
+DEFINE_TYPE_SYSTEM(genl_ethtool_cable_amplitude);
+
+static const NLType genl_ethtool_cable_pulse_types[] = {
+        [ETHTOOL_A_CABLE_PULSE_mV] = { .type = NETLINK_TYPE_S16 },
+};
+
+DEFINE_TYPE_SYSTEM(genl_ethtool_cable_pulse);
+
+static const NLType genl_ethtool_cable_step_types[] = {
+        [ETHTOOL_A_CABLE_STEP_FIRST_DISTANCE] = { .type = NETLINK_TYPE_U32 },
+        [ETHTOOL_A_CABLE_STEP_LAST_DISTANCE]  = { .type = NETLINK_TYPE_U32 },
+        [ETHTOOL_A_CABLE_STEP_STEP_DISTANCE]  = { .type = NETLINK_TYPE_U32 },
+};
+
+DEFINE_TYPE_SYSTEM(genl_ethtool_cable_step);
+
+static const NLType genl_ethtool_cable_tdr_nest_types[] = {
+        [ETHTOOL_A_CABLE_TDR_NEST_STEP]      = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_cable_step_type_system },
+        [ETHTOOL_A_CABLE_TDR_NEST_AMPLITUDE] = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_cable_amplitude_type_system },
+        [ETHTOOL_A_CABLE_TDR_NEST_PULSE]     = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_cable_pulse_type_system },
+};
+
+DEFINE_TYPE_SYSTEM(genl_ethtool_cable_tdr_nest);
+
+static const NLType genl_ethtool_cable_test_tdr_notify_types[] = {
+        [ETHTOOL_A_CABLE_TEST_TDR_NTF_HEADER] = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_header_type_system },
+        [ETHTOOL_A_CABLE_TEST_TDR_NTF_STATUS] = { .type = NETLINK_TYPE_U8 },
+        [ETHTOOL_A_CABLE_TEST_TDR_NTF_NEST]   = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_cable_tdr_nest_type_system },
+};
+
+DEFINE_TYPE_SYSTEM(genl_ethtool_cable_test_tdr_notify);
+
+static const NLType genl_ethtool_tunnel_udp_entry_types[] = {
+        [ETHTOOL_A_TUNNEL_UDP_ENTRY_PORT] = { .type = NETLINK_TYPE_U16 }, /* be16 */
+        [ETHTOOL_A_TUNNEL_UDP_ENTRY_TYPE] = { .type = NETLINK_TYPE_U32 },
+};
+
+DEFINE_TYPE_SYSTEM(genl_ethtool_tunnel_udp_entry);
+
+static const NLType genl_ethtool_tunnel_udp_table_types[] = {
+        [ETHTOOL_A_TUNNEL_UDP_TABLE_SIZE]  = { .type = NETLINK_TYPE_U32 },
+        [ETHTOOL_A_TUNNEL_UDP_TABLE_TYPES] = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_bitset_type_system },
+        [ETHTOOL_A_TUNNEL_UDP_TABLE_ENTRY] = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_tunnel_udp_entry_type_system },
+};
+
+DEFINE_TYPE_SYSTEM(genl_ethtool_tunnel_udp_table);
+
+static const NLType genl_ethtool_tunnel_udp_port_types[] = {
+        [ETHTOOL_A_TUNNEL_UDP_TABLE] = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_tunnel_udp_table_type_system },
+};
+
+DEFINE_TYPE_SYSTEM(genl_ethtool_tunnel_udp_port);
+
+static const NLType genl_ethtool_tunnel_info_types[] = {
+        [ETHTOOL_A_TUNNEL_INFO_HEADER]    = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_header_type_system },
+        [ETHTOOL_A_TUNNEL_INFO_UDP_PORTS] = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_tunnel_udp_port_type_system },
+};
+
+DEFINE_TYPE_SYSTEM(genl_ethtool_tunnel_info);
+
+static const NLType genl_ethtool_fec_stat_types[] = {
+        [ETHTOOL_A_FEC_STAT_PAD]       = { .type = NETLINK_TYPE_BINARY },
+        [ETHTOOL_A_FEC_STAT_CORRECTED] = { .type = NETLINK_TYPE_U64 }, /* array, u64 */
+        [ETHTOOL_A_FEC_STAT_UNCORR]    = { .type = NETLINK_TYPE_U64 }, /* array, u64 */
+        [ETHTOOL_A_FEC_STAT_CORR_BITS] = { .type = NETLINK_TYPE_U64 }, /* array, u64 */
+};
+
+DEFINE_TYPE_SYSTEM(genl_ethtool_fec_stat);
+
+static const NLType genl_ethtool_fec_types[] = {
+        [ETHTOOL_A_FEC_HEADER] = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_header_type_system },
+        [ETHTOOL_A_FEC_MODES]  = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_bitset_type_system },
+        [ETHTOOL_A_FEC_AUTO]   = { .type = NETLINK_TYPE_U8 },
+        [ETHTOOL_A_FEC_ACTIVE] = { .type = NETLINK_TYPE_U32 },
+        [ETHTOOL_A_FEC_STATS]  = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_fec_stat_type_system },
+};
+
+DEFINE_TYPE_SYSTEM(genl_ethtool_fec);
+
+static const NLType genl_ethtool_module_eeprom_types[] = {
+        [ETHTOOL_A_MODULE_EEPROM_HEADER]      = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_header_type_system },
+        [ETHTOOL_A_MODULE_EEPROM_OFFSET]      = { .type = NETLINK_TYPE_U32 },
+        [ETHTOOL_A_MODULE_EEPROM_LENGTH]      = { .type = NETLINK_TYPE_U32 },
+        [ETHTOOL_A_MODULE_EEPROM_PAGE]        = { .type = NETLINK_TYPE_U8 },
+        [ETHTOOL_A_MODULE_EEPROM_BANK]        = { .type = NETLINK_TYPE_U8 },
+        [ETHTOOL_A_MODULE_EEPROM_I2C_ADDRESS] = { .type = NETLINK_TYPE_U8 },
+        [ETHTOOL_A_MODULE_EEPROM_DATA]        = { .type = NETLINK_TYPE_BINARY },
+};
+
+DEFINE_TYPE_SYSTEM(genl_ethtool_module_eeprom);
+
+static const NLType genl_ethtool_stat_eth_phy_types[] = {
+        [ETHTOOL_A_STATS_ETH_PHY_5_SYM_ERR] = { .type = NETLINK_TYPE_BINARY },
+};
+
+static const NLType genl_ethtool_stat_eth_mac_types[] = {
+        [ETHTOOL_A_STATS_ETH_MAC_2_TX_PKT]        = { .type = NETLINK_TYPE_BINARY },
+        [ETHTOOL_A_STATS_ETH_MAC_3_SINGLE_COL]    = { .type = NETLINK_TYPE_BINARY },
+        [ETHTOOL_A_STATS_ETH_MAC_4_MULTI_COL]     = { .type = NETLINK_TYPE_BINARY },
+        [ETHTOOL_A_STATS_ETH_MAC_5_RX_PKT]        = { .type = NETLINK_TYPE_BINARY },
+        [ETHTOOL_A_STATS_ETH_MAC_6_FCS_ERR]       = { .type = NETLINK_TYPE_BINARY },
+        [ETHTOOL_A_STATS_ETH_MAC_7_ALIGN_ERR]     = { .type = NETLINK_TYPE_BINARY },
+        [ETHTOOL_A_STATS_ETH_MAC_8_TX_BYTES]      = { .type = NETLINK_TYPE_BINARY },
+        [ETHTOOL_A_STATS_ETH_MAC_9_TX_DEFER]      = { .type = NETLINK_TYPE_BINARY },
+        [ETHTOOL_A_STATS_ETH_MAC_10_LATE_COL]     = { .type = NETLINK_TYPE_BINARY },
+        [ETHTOOL_A_STATS_ETH_MAC_11_XS_COL]       = { .type = NETLINK_TYPE_BINARY },
+        [ETHTOOL_A_STATS_ETH_MAC_12_TX_INT_ERR]   = { .type = NETLINK_TYPE_BINARY },
+        [ETHTOOL_A_STATS_ETH_MAC_13_CS_ERR]       = { .type = NETLINK_TYPE_BINARY },
+        [ETHTOOL_A_STATS_ETH_MAC_14_RX_BYTES]     = { .type = NETLINK_TYPE_BINARY },
+        [ETHTOOL_A_STATS_ETH_MAC_15_RX_INT_ERR]   = { .type = NETLINK_TYPE_BINARY },
+        [ETHTOOL_A_STATS_ETH_MAC_18_TX_MCAST]     = { .type = NETLINK_TYPE_BINARY },
+        [ETHTOOL_A_STATS_ETH_MAC_19_TX_BCAST]     = { .type = NETLINK_TYPE_BINARY },
+        [ETHTOOL_A_STATS_ETH_MAC_20_XS_DEFER]     = { .type = NETLINK_TYPE_BINARY },
+        [ETHTOOL_A_STATS_ETH_MAC_21_RX_MCAST]     = { .type = NETLINK_TYPE_BINARY },
+        [ETHTOOL_A_STATS_ETH_MAC_22_RX_BCAST]     = { .type = NETLINK_TYPE_BINARY },
+        [ETHTOOL_A_STATS_ETH_MAC_23_IR_LEN_ERR]   = { .type = NETLINK_TYPE_BINARY },
+        [ETHTOOL_A_STATS_ETH_MAC_24_OOR_LEN]      = { .type = NETLINK_TYPE_BINARY },
+        [ETHTOOL_A_STATS_ETH_MAC_25_TOO_LONG_ERR] = { .type = NETLINK_TYPE_BINARY },
+};
+
+static const NLType genl_ethtool_stat_eth_ctrl_types[] = {
+        [ETHTOOL_A_STATS_ETH_CTRL_3_TX]       = { .type = NETLINK_TYPE_BINARY },
+        [ETHTOOL_A_STATS_ETH_CTRL_4_RX]       = { .type = NETLINK_TYPE_BINARY },
+        [ETHTOOL_A_STATS_ETH_CTRL_5_RX_UNSUP] = { .type = NETLINK_TYPE_BINARY },
+};
+
+static const NLType genl_ethtool_stat_rmon_types[] = {
+        [ETHTOOL_A_STATS_RMON_UNDERSIZE] = { .type = NETLINK_TYPE_BINARY },
+        [ETHTOOL_A_STATS_RMON_OVERSIZE]  = { .type = NETLINK_TYPE_BINARY },
+        [ETHTOOL_A_STATS_RMON_FRAG]      = { .type = NETLINK_TYPE_BINARY },
+        [ETHTOOL_A_STATS_RMON_JABBER]    = { .type = NETLINK_TYPE_BINARY },
+};
+
+static const NLTypeSystemUnionElement genl_ethtool_stat_group_stat_type_systems[] = {
+        { .u32 = ETHTOOL_STATS_ETH_PHY,  .type_system = TYPE_SYSTEM_FROM_TYPE(genl_ethtool_stat_eth_phy),  },
+        { .u32 = ETHTOOL_STATS_ETH_MAC,  .type_system = TYPE_SYSTEM_FROM_TYPE(genl_ethtool_stat_eth_mac),  },
+        { .u32 = ETHTOOL_STATS_ETH_CTRL, .type_system = TYPE_SYSTEM_FROM_TYPE(genl_ethtool_stat_eth_ctrl), },
+        { .u32 = ETHTOOL_STATS_RMON,     .type_system = TYPE_SYSTEM_FROM_TYPE(genl_ethtool_stat_rmon),     },
+};
+
+static const NLTypeSystemUnion genl_ethtool_stat_group_stat_type_system_union = {
+        .count = ELEMENTSOF(genl_ethtool_stat_group_stat_type_systems),
+        .elements = genl_ethtool_stat_group_stat_type_systems,
+        .match_type = NL_MATCH_U32,
+        .match_attribute = ETHTOOL_A_STATS_GRP_SS_ID,
+};
+
+static const NLTypeSystem genl_ethtool_stat_group_type_system;
+
+static const NLType genl_ethtool_stat_group_types[] = {
+        [ETHTOOL_A_STATS_GRP_PAD]          = { .type = NETLINK_TYPE_BINARY },
+        [ETHTOOL_A_STATS_GRP_ID]           = { .type = NETLINK_TYPE_U32 },
+        [ETHTOOL_A_STATS_GRP_SS_ID]        = { .type = NETLINK_TYPE_U32 },
+        [ETHTOOL_A_STATS_GRP_STAT]         = { .type = NETLINK_TYPE_NESTED, .type_system_union = &genl_ethtool_stat_group_stat_type_system_union },
+        [ETHTOOL_A_STATS_GRP_HIST_RX]      = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_stat_group_type_system },
+        [ETHTOOL_A_STATS_GRP_HIST_TX]      = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_stat_group_type_system },
+        [ETHTOOL_A_STATS_GRP_HIST_BKT_LOW] = { .type = NETLINK_TYPE_U32 },
+        [ETHTOOL_A_STATS_GRP_HIST_BKT_HI]  = { .type = NETLINK_TYPE_U32 },
+        [ETHTOOL_A_STATS_GRP_HIST_VAL]     = { .type = NETLINK_TYPE_U64 },
+};
+
+DEFINE_TYPE_SYSTEM(genl_ethtool_stat_group);
+
+static const NLType genl_ethtool_stat_types[] = {
+        [ETHTOOL_A_STATS_PAD]    = { .type = NETLINK_TYPE_BINARY },
+        [ETHTOOL_A_STATS_HEADER] = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_header_type_system },
+        [ETHTOOL_A_STATS_GROUPS] = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_bitset_type_system },
+        [ETHTOOL_A_STATS_GRP]    = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_stat_group_type_system },
+};
+
+DEFINE_TYPE_SYSTEM(genl_ethtool_stat);
+
+static const NLType genl_ethtool_cmd_userspace_to_kernel_types[] = {
+        [ETHTOOL_MSG_STRSET_GET]         = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_strset_type_system },
+        [ETHTOOL_MSG_LINKINFO_GET]       = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_linkinfo_type_system },
+        [ETHTOOL_MSG_LINKINFO_SET]       = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_linkinfo_type_system },
+        [ETHTOOL_MSG_LINKMODES_GET]      = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_linkmode_type_system },
+        [ETHTOOL_MSG_LINKMODES_SET]      = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_linkmode_type_system },
+        [ETHTOOL_MSG_LINKSTATE_GET]      = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_linkstate_type_system },
+        [ETHTOOL_MSG_DEBUG_GET]          = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_debug_type_system },
+        [ETHTOOL_MSG_DEBUG_SET]          = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_debug_type_system },
+        [ETHTOOL_MSG_WOL_GET]            = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_wol_type_system },
+        [ETHTOOL_MSG_WOL_SET]            = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_wol_type_system },
+        [ETHTOOL_MSG_FEATURES_GET]       = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_feature_type_system },
+        [ETHTOOL_MSG_FEATURES_SET]       = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_feature_type_system },
+        [ETHTOOL_MSG_PRIVFLAGS_GET]      = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_privflag_type_system },
+        [ETHTOOL_MSG_PRIVFLAGS_SET]      = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_privflag_type_system },
+        [ETHTOOL_MSG_RINGS_GET]          = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_ring_type_system },
+        [ETHTOOL_MSG_RINGS_SET]          = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_ring_type_system },
+        [ETHTOOL_MSG_CHANNELS_GET]       = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_channel_type_system },
+        [ETHTOOL_MSG_CHANNELS_SET]       = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_channel_type_system },
+        [ETHTOOL_MSG_COALESCE_GET]       = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_coalesce_type_system },
+        [ETHTOOL_MSG_COALESCE_SET]       = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_coalesce_type_system },
+        [ETHTOOL_MSG_PAUSE_GET]          = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_pause_type_system },
+        [ETHTOOL_MSG_PAUSE_SET]          = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_pause_type_system },
+        [ETHTOOL_MSG_EEE_GET]            = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_eee_type_system },
+        [ETHTOOL_MSG_EEE_SET]            = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_eee_type_system },
+        [ETHTOOL_MSG_TSINFO_GET]         = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_tsinfo_type_system },
+        [ETHTOOL_MSG_CABLE_TEST_ACT]     = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_cable_test_type_system },
+        [ETHTOOL_MSG_CABLE_TEST_TDR_ACT] = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_cable_test_tdr_type_system },
+        [ETHTOOL_MSG_TUNNEL_INFO_GET]    = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_tunnel_info_type_system },
+        [ETHTOOL_MSG_FEC_GET]            = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_fec_type_system },
+        [ETHTOOL_MSG_FEC_SET]            = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_fec_type_system },
+        [ETHTOOL_MSG_MODULE_EEPROM_GET]  = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_module_eeprom_type_system },
+        [ETHTOOL_MSG_STATS_GET]          = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_stat_type_system },
+};
+
+DEFINE_TYPE_SYSTEM(genl_ethtool_cmd_userspace_to_kernel);
+
+static const NLType genl_ethtool_cmd_kernel_to_userspace_types[] = {
+        [ETHTOOL_MSG_STRSET_GET_REPLY]        = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_strset_type_system },
+        [ETHTOOL_MSG_LINKINFO_GET_REPLY]      = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_linkinfo_type_system },
+        [ETHTOOL_MSG_LINKINFO_NTF]            = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_linkinfo_type_system },
+        [ETHTOOL_MSG_LINKMODES_GET_REPLY]     = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_linkmode_type_system },
+        [ETHTOOL_MSG_LINKMODES_NTF]           = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_linkmode_type_system },
+        [ETHTOOL_MSG_LINKSTATE_GET_REPLY]     = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_linkstate_type_system },
+        [ETHTOOL_MSG_DEBUG_GET_REPLY]         = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_debug_type_system },
+        [ETHTOOL_MSG_DEBUG_NTF]               = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_debug_type_system },
+        [ETHTOOL_MSG_WOL_GET_REPLY]           = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_wol_type_system },
+        [ETHTOOL_MSG_WOL_NTF]                 = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_wol_type_system },
+        [ETHTOOL_MSG_FEATURES_GET_REPLY]      = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_feature_type_system },
+        [ETHTOOL_MSG_FEATURES_SET_REPLY]      = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_feature_type_system },
+        [ETHTOOL_MSG_FEATURES_NTF]            = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_feature_type_system },
+        [ETHTOOL_MSG_PRIVFLAGS_GET_REPLY]     = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_privflag_type_system },
+        [ETHTOOL_MSG_PRIVFLAGS_NTF]           = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_privflag_type_system },
+        [ETHTOOL_MSG_RINGS_GET_REPLY]         = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_ring_type_system },
+        [ETHTOOL_MSG_RINGS_NTF]               = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_ring_type_system },
+        [ETHTOOL_MSG_CHANNELS_GET_REPLY]      = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_channel_type_system },
+        [ETHTOOL_MSG_CHANNELS_NTF]            = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_channel_type_system },
+        [ETHTOOL_MSG_COALESCE_GET_REPLY]      = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_coalesce_type_system },
+        [ETHTOOL_MSG_COALESCE_NTF]            = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_coalesce_type_system },
+        [ETHTOOL_MSG_PAUSE_GET_REPLY]         = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_pause_type_system },
+        [ETHTOOL_MSG_PAUSE_NTF]               = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_pause_type_system },
+        [ETHTOOL_MSG_EEE_GET_REPLY]           = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_eee_type_system },
+        [ETHTOOL_MSG_EEE_NTF]                 = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_eee_type_system },
+        [ETHTOOL_MSG_TSINFO_GET_REPLY]        = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_tsinfo_type_system },
+        [ETHTOOL_MSG_CABLE_TEST_NTF]          = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_cable_test_notify_type_system },
+        [ETHTOOL_MSG_CABLE_TEST_TDR_NTF]      = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_cable_test_tdr_notify_type_system },
+        [ETHTOOL_MSG_TUNNEL_INFO_GET_REPLY]   = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_tunnel_info_type_system },
+        [ETHTOOL_MSG_FEC_GET_REPLY]           = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_fec_type_system },
+        [ETHTOOL_MSG_FEC_NTF]                 = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_fec_type_system },
+        [ETHTOOL_MSG_MODULE_EEPROM_GET_REPLY] = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_module_eeprom_type_system },
+        [ETHTOOL_MSG_STATS_GET_REPLY]         = { .type = NETLINK_TYPE_NESTED, .type_system = &genl_ethtool_stat_type_system },
+};
+
+DEFINE_TYPE_SYSTEM(genl_ethtool_cmd_kernel_to_userspace);
+
 /***************** genl fou type systems *****************/
 static const NLType genl_fou_types[] = {
         [FOU_ATTR_PORT]              = { .type = NETLINK_TYPE_U16 },
@@ -1349,7 +1881,7 @@ static const NLTypeSystemUnionElement genl_type_systems[] = {
 static const NLTypeSystemUnion genl_type_system_union = {
         .count = ELEMENTSOF(genl_type_systems),
         .elements = genl_type_systems,
-        .match_type = NL_MATCH_SIBLING,
+        .match_type = NL_MATCH_STRING,
 };
 
 uint16_t type_get_type(const NLType *type) {
@@ -1490,19 +2022,34 @@ NLMatchType type_system_union_get_match_type(const NLTypeSystemUnion *type_syste
 
 uint16_t type_system_union_get_match_attribute(const NLTypeSystemUnion *type_system_union) {
         assert(type_system_union);
-        assert(type_system_union->match_type == NL_MATCH_SIBLING);
+        assert(type_system_union->match_type != NL_MATCH_PROTOCOL);
         return type_system_union->match_attribute;
 }
 
 int type_system_union_get_type_system_by_string(const NLTypeSystemUnion *type_system_union, const NLTypeSystem **ret, const char *key) {
         assert(type_system_union);
         assert(type_system_union->elements);
-        assert(type_system_union->match_type == NL_MATCH_SIBLING);
+        assert(type_system_union->match_type == NL_MATCH_STRING);
         assert(ret);
         assert(key);
 
         for (size_t i = 0; i < type_system_union->count; i++)
                 if (streq(type_system_union->elements[i].name, key)) {
+                        *ret = &type_system_union->elements[i].type_system;
+                        return 0;
+                }
+
+        return -EOPNOTSUPP;
+}
+
+int type_system_union_get_type_system_by_u32(const NLTypeSystemUnion *type_system_union, const NLTypeSystem **ret, uint32_t u32) {
+        assert(type_system_union);
+        assert(type_system_union->elements);
+        assert(type_system_union->match_type == NL_MATCH_U32);
+        assert(ret);
+
+        for (size_t i = 0; i < type_system_union->count; i++)
+                if (type_system_union->elements[i].u32 == u32) {
                         *ret = &type_system_union->elements[i].type_system;
                         return 0;
                 }

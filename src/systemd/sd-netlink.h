@@ -90,7 +90,8 @@ int sd_netlink_message_append_ether_addr(sd_netlink_message *m, unsigned short t
 int sd_netlink_message_append_cache_info(sd_netlink_message *m, unsigned short type, const struct ifa_cacheinfo *info);
 
 int sd_netlink_message_open_container(sd_netlink_message *m, unsigned short type);
-int sd_netlink_message_open_container_union(sd_netlink_message *m, unsigned short type, const char *key);
+int sd_netlink_message_open_container_union_by_string(sd_netlink_message *m, unsigned short type, const char *key);
+int sd_netlink_message_open_container_union_by_u32(sd_netlink_message *m, unsigned short type, uint32_t key);
 int sd_netlink_message_close_container(sd_netlink_message *m);
 
 int sd_netlink_message_read(sd_netlink_message *m, unsigned short type, size_t size, void *data);

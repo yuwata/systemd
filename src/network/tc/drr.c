@@ -25,7 +25,7 @@ static int drr_class_fill_message(Link *link, TClass *tclass, sd_netlink_message
 
         drr = TCLASS_TO_DRR(tclass);
 
-        r = sd_netlink_message_open_container_union(req, TCA_OPTIONS, "drr");
+        r = sd_netlink_message_open_container_union_by_string(req, TCA_OPTIONS, "drr");
         if (r < 0)
                 return log_link_error_errno(link, r, "Could not open container TCA_OPTIONS: %m");
 

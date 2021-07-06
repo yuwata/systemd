@@ -22,7 +22,7 @@ static int enhanced_transmission_selection_fill_message(Link *link, QDisc *qdisc
 
         ets = ETS(qdisc);
 
-        r = sd_netlink_message_open_container_union(req, TCA_OPTIONS, "ets");
+        r = sd_netlink_message_open_container_union_by_string(req, TCA_OPTIONS, "ets");
         if (r < 0)
                 return log_link_error_errno(link, r, "Could not open container TCA_OPTIONS: %m");
 
