@@ -27,7 +27,7 @@ int can_set_netlink_message(Link *link, sd_netlink_message *m) {
         if (r < 0)
                 return log_link_debug_errno(link, r, "Failed to open IFLA_LINKINFO container: %m");
 
-        r = sd_netlink_message_open_container_union(m, IFLA_INFO_DATA, link->kind);
+        r = sd_netlink_message_open_container_union_by_string(m, IFLA_INFO_DATA, link->kind);
         if (r < 0)
                 return log_link_debug_errno(link, r, "Could not open IFLA_INFO_DATA container: %m");
 

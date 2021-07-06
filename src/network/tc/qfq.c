@@ -27,7 +27,7 @@ static int quick_fair_queueing_class_fill_message(Link *link, TClass *tclass, sd
 
         qfq = TCLASS_TO_QFQ(tclass);
 
-        r = sd_netlink_message_open_container_union(req, TCA_OPTIONS, "qfq");
+        r = sd_netlink_message_open_container_union_by_string(req, TCA_OPTIONS, "qfq");
         if (r < 0)
                 return log_link_error_errno(link, r, "Could not open container TCA_OPTIONS: %m");
 

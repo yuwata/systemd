@@ -425,7 +425,7 @@ static void test_container(sd_netlink *rtnl) {
         assert_se(sd_rtnl_message_new_link(rtnl, &m, RTM_NEWLINK, 0) >= 0);
 
         assert_se(sd_netlink_message_open_container(m, IFLA_LINKINFO) >= 0);
-        assert_se(sd_netlink_message_open_container_union(m, IFLA_INFO_DATA, "vlan") >= 0);
+        assert_se(sd_netlink_message_open_container_union_by_string(m, IFLA_INFO_DATA, "vlan") >= 0);
         assert_se(sd_netlink_message_append_u16(m, IFLA_VLAN_ID, 100) >= 0);
         assert_se(sd_netlink_message_close_container(m) >= 0);
         assert_se(sd_netlink_message_append_string(m, IFLA_INFO_KIND, "vlan") >= 0);

@@ -20,7 +20,7 @@ static int pie_fill_message(Link *link, QDisc *qdisc, sd_netlink_message *req) {
 
         pie = PIE(qdisc);
 
-        r = sd_netlink_message_open_container_union(req, TCA_OPTIONS, "pie");
+        r = sd_netlink_message_open_container_union_by_string(req, TCA_OPTIONS, "pie");
         if (r < 0)
                 return log_link_error_errno(link, r, "Could not open container TCA_OPTIONS: %m");
 

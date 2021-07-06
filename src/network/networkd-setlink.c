@@ -274,7 +274,7 @@ static int link_configure(
                 if (r < 0)
                         return log_link_debug_errno(link, r, "Could not open IFLA_LINKINFO container: %m");
 
-                r = sd_netlink_message_open_container_union(req, IFLA_INFO_DATA, "bond");
+                r = sd_netlink_message_open_container_union_by_string(req, IFLA_INFO_DATA, "bond");
                 if (r < 0)
                         return log_link_debug_errno(link, r, "Could not open IFLA_INFO_DATA container: %m");
 

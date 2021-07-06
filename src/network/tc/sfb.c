@@ -33,7 +33,7 @@ static int stochastic_fair_blue_fill_message(Link *link, QDisc *qdisc, sd_netlin
 
         opt.limit = sfb->packet_limit;
 
-        r = sd_netlink_message_open_container_union(req, TCA_OPTIONS, "sfb");
+        r = sd_netlink_message_open_container_union_by_string(req, TCA_OPTIONS, "sfb");
         if (r < 0)
                 return log_link_error_errno(link, r, "Could not open container TCA_OPTIONS: %m");
 

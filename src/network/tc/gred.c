@@ -39,7 +39,7 @@ static int generic_random_early_detection_fill_message(Link *link, QDisc *qdisc,
         if (gred->grio >= 0)
                 opt.grio = gred->grio;
 
-        r = sd_netlink_message_open_container_union(req, TCA_OPTIONS, "gred");
+        r = sd_netlink_message_open_container_union_by_string(req, TCA_OPTIONS, "gred");
         if (r < 0)
                 return log_link_error_errno(link, r, "Could not open container TCA_OPTIONS: %m");
 
