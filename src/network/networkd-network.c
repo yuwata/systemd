@@ -121,6 +121,7 @@ static int network_resolve_stacked_netdevs(Network *network) {
 int network_verify(Network *network) {
         assert(network);
         assert(network->filename);
+        assert(network->manager);
 
         if (net_match_is_empty(&network->match) && !network->conditions)
                 return log_warning_errno(SYNTHETIC_ERRNO(EINVAL),
@@ -179,8 +180,8 @@ int network_verify(Network *network) {
             network->ipv6ll_address_gen_mode < 0)
                 network->ipv6ll_address_gen_mode = IPV6_LINK_LOCAL_ADDRESSS_GEN_MODE_STABLE_PRIVACY;
 
-        /* IPMasquerade implies IPForward */
-        network->ip_forward |= network->ip_masquerade;
+        /* IPMasquerade= implies global IP forwarding */
+        network->manager->ip_forward |= network->ip_masquerade;
 
         network_adjust_ipv6_proxy_ndp(network);
         network_adjust_ipv6_accept_ra(network);
@@ -397,6 +398,7 @@ int network_load_one(Manager *manager, OrderedHashmap **networks, const char *fi
                 .link_local = _ADDRESS_FAMILY_INVALID,
                 .ipv6ll_address_gen_mode = _IPV6_LINK_LOCAL_ADDRESS_GEN_MODE_INVALID,
 
+                .ip_forward = _ADDRESS_FAMILY_INVALID,
                 .ipv4_accept_local = -1,
                 .ipv4_route_localnet = -1,
                 .ipv6_privacy_extensions = IPV6_PRIVACY_EXTENSIONS_NO,
@@ -502,6 +504,7 @@ int network_load_one(Manager *manager, OrderedHashmap **networks, const char *fi
 
 int network_load(Manager *manager, OrderedHashmap **networks) {
         _cleanup_strv_free_ char **files = NULL;
+        AddressFamily previous_ip_forward;
         char **f;
         int r;
 
@@ -513,21 +516,29 @@ int network_load(Manager *manager, OrderedHashmap **networks) {
         if (r < 0)
                 return log_error_errno(r, "Failed to enumerate network files: %m");
 
+        previous_ip_forward = manager->ip_forward;
+
         STRV_FOREACH(f, files) {
                 r = network_load_one(manager, networks, *f);
                 if (r < 0)
                         log_error_errno(r, "Failed to load %s, ignoring: %m", *f);
         }
 
+        /* parsing .network files may update Manager setting. Let's adjust settings. */
+        manager_adjust_ip_forward(manager, previous_ip_forward, *networks);
+
         return 0;
 }
 
 int network_reload(Manager *manager) {
         OrderedHashmap *new_networks = NULL;
+        AddressFamily previous_ip_forward;
         Network *n, *old;
         int r;
 
         assert(manager);
+
+        previous_ip_forward = manager->ip_forward;
 
         r = network_load(manager, &new_networks);
         if (r < 0)
@@ -542,6 +553,17 @@ int network_reload(Manager *manager) {
                         continue; /* The .network file is modified. */
 
                 if (!streq(n->filename, old->filename))
+                        continue; /* The .network file is moved. */
+
+                /* Network::ipv6_accept_ra may be updated with the current Manager state.
+                 * Hence, it is necessary to compare explicitly. */
+                if (n->ipv6_accept_ra != old->ipv6_accept_ra)
+                        continue; /* global IP forward setting is changed. */
+
+                /* If global IP forward setting is changed and per-link IP forward setting is specified, then
+                 * the corresponding links need to be reconfigured. */
+                if (manager->ip_forward != previous_ip_forward &&
+                    n->ip_forward >= 0)
                         continue;
 
                 r = ordered_hashmap_replace(new_networks, old->name, old);

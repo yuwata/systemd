@@ -95,6 +95,7 @@ struct Manager {
         bool dhcp4_prefix_root_cannot_set_table;
         bool bridge_mdb_on_master_not_supported;
 
+        AddressFamily ip_forward;
         FirewallContext *fw_ctx;
 
         OrderedSet *request_queue;

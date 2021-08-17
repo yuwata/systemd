@@ -759,28 +759,10 @@ IPv6Token=prefixstable:2002:da8:1::</programlisting></para>
         </varlistentry>
         <varlistentry>
           <term><varname>IPForward=</varname></term>
-          <listitem><para>Configures IP packet forwarding for the
-          system. If enabled, incoming packets on any network
-          interface will be forwarded to any other interfaces
-          according to the routing table. Takes a boolean,
-          or the values <literal>ipv4</literal> or
-          <literal>ipv6</literal>, which only enable IP packet
-          forwarding for the specified address family.  This controls
-          the <filename>net.ipv4.ip_forward</filename> and
-          <filename>net.ipv6.conf.all.forwarding</filename> sysctl
-          options of the network interface (see <ulink
-          url="https://www.kernel.org/doc/Documentation/networking/ip-sysctl.txt">ip-sysctl.txt</ulink>
-          for details about sysctl options). Defaults to
-          <literal>no</literal>.</para>
+          <listitem>
+            <para>Configures global or per-link IP packet forwarding. Takes a boolean, or the values <literal>ipv4</literal> or <literal>ipv6</literal>, which only enable IP packet forwarding for the specified address family. If prefixed with <literal>@</literal> the setting will be applied to the per-link sysctl options, otherwise applied to global. If enabled, incoming packets on any network interface will be forwarded to any other interfaces according to the routing table. This controls the <filename>net.ipv4.ip_forward</filename>, <filename>net.ipv6.conf.all.forwarding</filename>, and <filename>net.ipv[46].conf.<replaceable>INTERFACE</replaceable>.forwarding</filename> sysctl options of the network interface (see <ulink url="https://www.kernel.org/doc/Documentation/networking/ip-sysctl.txt">ip-sysctl.txt</ulink> for details about the sysctl options). Defaults to <literal>no</literal> for the global setting and unset for per-link.</para>
 
-          <para>Note: this setting controls a global kernel option,
-          and does so one way only: if a network that has this setting
-          enabled is set up the global setting is turned on.  However,
-          it is never turned off again, even after all networks with
-          this setting enabled are shut down again.</para>
-
-          <para>To allow IP packet forwarding only between specific
-          network interfaces use a firewall.</para>
+            <para>Note: if a network that has this setting enabled is set up the global setting is turned on. However, it is never turned off again, even after all networks with this setting enabled are shut down again.</para>
           </listitem>
         </varlistentry>
         <varlistentry>

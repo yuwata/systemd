@@ -82,8 +82,8 @@ void network_adjust_ipv6_accept_ra(Network *network) {
                 network->ipv6_accept_ra = false;
         }
 
-        if (network->ipv6_accept_ra < 0)
-                /* default to accept RA if ip_forward is disabled and ignore RA if ip_forward is enabled */
+        /* default to accept RA if ip_forward is disabled and ignore RA if ip_forward is enabled */
+        if (network->ipv6_accept_ra < 0 && network->ip_forward >= 0)
                 network->ipv6_accept_ra = !FLAGS_SET(network->ip_forward, ADDRESS_FAMILY_IPV6);
 
         /* When RouterAllowList=, PrefixAllowList= or RouteAllowList= are specified, then

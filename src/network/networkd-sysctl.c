@@ -5,6 +5,7 @@
 
 #include "missing_network.h"
 #include "networkd-link.h"
+#include "networkd-manager.h"
 #include "networkd-network.h"
 #include "networkd-sysctl.h"
 #include "socket-util.h"
@@ -41,54 +42,62 @@ static int link_set_proxy_arp(Link *link) {
         return sysctl_write_ip_property_boolean(AF_INET, link->ifname, "proxy_arp", link->network->proxy_arp > 0);
 }
 
-static bool link_ip_forward_enabled(Link *link, int family) {
-        assert(link);
-        assert(IN_SET(family, AF_INET, AF_INET6));
-
-        if (family == AF_INET6 && !socket_ipv6_is_supported())
-                return false;
-
-        if (link->flags & IFF_LOOPBACK)
-                return false;
-
-        if (!link->network)
-                return false;
-
-        return link->network->ip_forward & (family == AF_INET ? ADDRESS_FAMILY_IPV4 : ADDRESS_FAMILY_IPV6);
-}
-
 static int link_set_ipv4_forward(Link *link) {
         assert(link);
 
-        if (!link_ip_forward_enabled(link, AF_INET))
+        if (link->flags & IFF_LOOPBACK)
                 return 0;
 
-        /* We propagate the forwarding flag from one interface to the
-         * global setting one way. This means: as long as at least one
-         * interface was configured at any time that had IP forwarding
-         * enabled the setting will stay on for good. We do this
-         * primarily to keep IPv4 and IPv6 packet forwarding behaviour
-         * somewhat in sync (see below). */
+        if (!link->network)
+                return 0;
 
-        return sysctl_write_ip_property(AF_INET, NULL, "ip_forward", "1");
+        if (link->network->ip_forward < 0)
+                return 0;
+
+        return sysctl_write_ip_property_boolean(AF_INET, link->ifname, "forwarding",
+                                                link->network->ip_forward & ADDRESS_FAMILY_IPV4);
 }
 
 static int link_set_ipv6_forward(Link *link) {
         assert(link);
 
-        if (!link_ip_forward_enabled(link, AF_INET6))
+        if (!socket_ipv6_is_supported())
                 return 0;
 
-        /* On Linux, the IPv6 stack does not know a per-interface
-         * packet forwarding setting: either packet forwarding is on
-         * for all, or off for all. We hence don't bother with a
-         * per-interface setting, but simply propagate the interface
-         * flag, if it is set, to the global flag, one-way. Note that
-         * while IPv4 would allow a per-interface flag, we expose the
-         * same behaviour there and also propagate the setting from
-         * one to all, to keep things simple (see above). */
+        if (link->flags & IFF_LOOPBACK)
+                return 0;
 
-        return sysctl_write_ip_property(AF_INET6, "all", "forwarding", "1");
+        if (!link->network)
+                return 0;
+
+        if (link->network->ip_forward < 0)
+                return 0;
+
+        return sysctl_write_ip_property_boolean(AF_INET6, link->ifname, "forwarding",
+                                                link->network->ip_forward & ADDRESS_FAMILY_IPV6);
+}
+
+static int manager_set_ipv4_forward(Manager *manager) {
+        assert(manager);
+
+        /* The setting will not be disabled if once enabled. */
+        if (!FLAGS_SET(manager->ip_forward, ADDRESS_FAMILY_IPV4))
+                return 0;
+
+        return sysctl_write_ip_property_boolean(AF_INET, NULL, "ip_forward", true);
+}
+
+static int manager_set_ipv6_forward(Manager *manager) {
+        assert(manager);
+
+        if (!socket_ipv6_is_supported())
+                return 0;
+
+        /* The setting will not be disabled if once enabled. */
+        if (!FLAGS_SET(manager->ip_forward, ADDRESS_FAMILY_IPV6))
+                return 0;
+
+        return sysctl_write_ip_property_boolean(AF_INET6, "all", "forwarding", true);
 }
 
 static int link_set_ipv6_privacy_extensions(Link *link) {
@@ -351,6 +360,33 @@ int link_set_sysctl(Link *link) {
         return 0;
 }
 
+void manager_adjust_ip_forward(Manager *manager, AddressFamily previous, OrderedHashmap *networks) {
+        Network *network;
+        int r;
+
+        assert(manager);
+        assert(previous >= 0 && previous < _ADDRESS_FAMILY_MAX);
+        assert(networks);
+
+        manager->ip_forward |= previous;
+
+        ORDERED_HASHMAP_FOREACH(network, networks)
+                if (network->ipv6_accept_ra < 0) /* see network_adjust_ipv6_accept_ra() */
+                        network->ipv6_accept_ra = !FLAGS_SET(manager->ip_forward, ADDRESS_FAMILY_IPV6);
+
+        if (!FLAGS_SET(previous, ADDRESS_FAMILY_IPV4)) {
+                r = manager_set_ipv4_forward(manager);
+                if (r < 0)
+                        log_warning_errno(r, "Cannot turn on IPv4 packet forwarding, ignoring: %m");
+        }
+
+        if (!FLAGS_SET(previous, ADDRESS_FAMILY_IPV6)) {
+                r = manager_set_ipv6_forward(manager);
+                if (r < 0)
+                        log_warning_errno(r, "Cannot turn on IPv6 packet forwarding, ignoring: %m");
+        }
+}
+
 static const char* const ipv6_privacy_extensions_table[_IPV6_PRIVACY_EXTENSIONS_MAX] = {
         [IPV6_PRIVACY_EXTENSIONS_NO] = "no",
         [IPV6_PRIVACY_EXTENSIONS_PREFER_PUBLIC] = "prefer-public",
@@ -391,6 +427,58 @@ int config_parse_ipv6_privacy_extensions(
         }
 
         *ipv6_privacy_extensions = s;
+
+        return 0;
+}
+
+int config_parse_ip_forward(
+                const char* unit,
+                const char *filename,
+                unsigned line,
+                const char *section,
+                unsigned section_line,
+                const char *lvalue,
+                int ltype,
+                const char *rvalue,
+                void *data,
+                void *userdata) {
+
+        Network *network = userdata;
+        AddressFamily s;
+        bool is_link;
+
+        assert(filename);
+        assert(lvalue);
+        assert(rvalue);
+        assert(network);
+        assert(network->manager);
+
+        /* For backward compatibility, handle "kernel" as "no". */
+        if (streq(rvalue, "kernel")) {
+                network->manager->ip_forward = ADDRESS_FAMILY_NO;
+                return 0;
+        }
+
+        if (isempty(rvalue)) {
+                /* Reset both global and per-link settings. */
+                network->manager->ip_forward = ADDRESS_FAMILY_NO;
+                network->ip_forward = _ADDRESS_FAMILY_INVALID;
+                return 0;
+        }
+
+        is_link = rvalue[0] == '@';
+
+        s = address_family_from_string(rvalue + is_link);
+        if (s < 0) {
+                log_syntax(unit, LOG_WARNING, filename, line, s,
+                           "Failed to parse IPForward= option, ignoring: %s", rvalue);
+                return 0;
+        }
+
+        if (is_link)
+                network->ip_forward = s;
+        else
+                network->manager->ip_forward = s;
 
         return 0;
 }

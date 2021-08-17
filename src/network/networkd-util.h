@@ -20,7 +20,6 @@ typedef struct NetworkConfigSection {
 } NetworkConfigSection;
 
 CONFIG_PARSER_PROTOTYPE(config_parse_link_local_address_family);
-CONFIG_PARSER_PROTOTYPE(config_parse_address_family_with_kernel);
 CONFIG_PARSER_PROTOTYPE(config_parse_ip_masquerade);
 CONFIG_PARSER_PROTOTYPE(config_parse_mud_url);
 

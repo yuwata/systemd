@@ -4,8 +4,11 @@
 #include <stdbool.h>
 
 #include "conf-parser.h"
+#include "hashmap.h"
+#include "network-util.h"
 
 typedef struct Link Link;
+typedef struct Manager Manager;
 
 typedef enum IPv6PrivacyExtensions {
         /* The values map to the kernel's /proc/sys/net/ipv6/conf/xxx/use_tempaddr values */
@@ -19,7 +22,10 @@ typedef enum IPv6PrivacyExtensions {
 int link_set_sysctl(Link *link);
 int link_set_ipv6_mtu(Link *link);
 
+void manager_adjust_ip_forward(Manager *manager, AddressFamily previous, OrderedHashmap *networks);
+
 const char* ipv6_privacy_extensions_to_string(IPv6PrivacyExtensions i) _const_;
 IPv6PrivacyExtensions ipv6_privacy_extensions_from_string(const char *s) _pure_;
 
 CONFIG_PARSER_PROTOTYPE(config_parse_ipv6_privacy_extensions);
+CONFIG_PARSER_PROTOTYPE(config_parse_ip_forward);
