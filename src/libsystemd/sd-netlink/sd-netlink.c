@@ -6,7 +6,6 @@
 
 #include "alloc-util.h"
 #include "fd-util.h"
-#include "generic-netlink.h"
 #include "hashmap.h"
 #include "io-util.h"
 #include "macro.h"
@@ -197,7 +196,8 @@ static sd_netlink *netlink_free(sd_netlink *nl) {
 
         hashmap_free(nl->broadcast_group_refs);
 
-        genl_clear_family(nl);
+        hashmap_free(nl->genl_family_to_nlmsg_type);
+        hashmap_free(nl->nlmsg_type_to_genl_family);
 
         safe_close(nl->fd);
         return mfree(nl);
@@ -426,8 +426,8 @@ static int process_reply(sd_netlink *nl, sd_netlink_message *m) {
 
 static int process_match(sd_netlink *nl, sd_netlink_message *m) {
         struct match_callback *c;
+        sd_netlink_slot *slot;
         uint16_t type;
-        uint8_t cmd;
         int r;
 
         assert(nl);
@@ -437,19 +437,8 @@ static int process_match(sd_netlink *nl, sd_netlink_message *m) {
         if (r < 0)
                 return r;
 
-        if (m->protocol == NETLINK_GENERIC) {
-                r = sd_genl_message_get_command(nl, m, &cmd);
-                if (r < 0)
-                        return r;
-        } else
-                cmd = 0;
-
         LIST_FOREACH(match_callbacks, c, nl->match_callbacks) {
-                sd_netlink_slot *slot;
-
-                if (c->type != type)
-                        continue;
-                if (c->cmd != 0 && c->cmd != cmd)
+                if (type != c->type)
                         continue;
 
                 slot = container_of(c, sd_netlink_slot, match_callback);
@@ -906,56 +895,6 @@ int sd_netlink_detach_event(sd_netlink *nl) {
         return 0;
 }
 
-int netlink_add_match_internal(
-                sd_netlink *nl,
-                sd_netlink_slot **ret_slot,
-                const uint32_t *groups,
-                size_t n_groups,
-                uint16_t type,
-                uint8_t cmd,
-                sd_netlink_message_handler_t callback,
-                sd_netlink_destroy_t destroy_callback,
-                void *userdata,
-                const char *description) {
-
-        _cleanup_free_ sd_netlink_slot *slot = NULL;
-        int r;
-
-        assert(groups);
-        assert(n_groups > 0);
-
-        for (size_t i = 0; i < n_groups; i++) {
-                r = socket_broadcast_group_ref(nl, groups[i]);
-                if (r < 0)
-                        return r;
-        }
-
-        r = netlink_slot_allocate(nl, !ret_slot, NETLINK_MATCH_CALLBACK, sizeof(struct match_callback),
-                                  userdata, description, &slot);
-        if (r < 0)
-                return r;
-
-        slot->match_callback.groups = newdup(uint32_t, groups, n_groups);
-        if (!slot->match_callback.groups)
-                return -ENOMEM;
-
-        slot->match_callback.n_groups = n_groups;
-        slot->match_callback.callback = callback;
-        slot->match_callback.type = type;
-        slot->match_callback.cmd = cmd;
-
-        LIST_PREPEND(match_callbacks, nl->match_callbacks, &slot->match_callback);
-
-        /* Set this at last. Otherwise, some failures in above call the destroy callback but some do not. */
-        slot->destroy_callback = destroy_callback;
-
-        if (ret_slot)
-                *ret_slot = slot;
-
-        TAKE_PTR(slot);
-        return 0;
-}
-
 int sd_netlink_add_match(
                 sd_netlink *rtnl,
                 sd_netlink_slot **ret_slot,
@@ -965,55 +904,86 @@ int sd_netlink_add_match(
                 void *userdata,
                 const char *description) {
 
-        static const uint32_t
-                address_groups[]  = { RTNLGRP_IPV4_IFADDR, RTNLGRP_IPV6_IFADDR, },
-                link_groups[]     = { RTNLGRP_LINK, },
-                neighbor_groups[] = { RTNLGRP_NEIGH, },
-                nexthop_groups[]  = { RTNLGRP_NEXTHOP, },
-                route_groups[]    = { RTNLGRP_IPV4_ROUTE, RTNLGRP_IPV6_ROUTE, },
-                rule_groups[]     = { RTNLGRP_IPV4_RULE, RTNLGRP_IPV6_RULE, };
-        const uint32_t *groups;
-        size_t n_groups;
+        _cleanup_free_ sd_netlink_slot *slot = NULL;
+        int r;
 
         assert_return(rtnl, -EINVAL);
         assert_return(callback, -EINVAL);
         assert_return(!netlink_pid_changed(rtnl), -ECHILD);
 
+        r = netlink_slot_allocate(rtnl, !ret_slot, NETLINK_MATCH_CALLBACK, sizeof(struct match_callback), userdata, description, &slot);
+        if (r < 0)
+                return r;
+
+        slot->match_callback.callback = callback;
+        slot->match_callback.type = type;
+
         switch (type) {
                 case RTM_NEWLINK:
                 case RTM_DELLINK:
-                        groups = link_groups;
-                        n_groups = ELEMENTSOF(link_groups);
+                        r = socket_broadcast_group_ref(rtnl, RTNLGRP_LINK);
+                        if (r < 0)
+                                return r;
+
                         break;
                 case RTM_NEWADDR:
                 case RTM_DELADDR:
-                        groups = address_groups;
-                        n_groups = ELEMENTSOF(address_groups);
+                        r = socket_broadcast_group_ref(rtnl, RTNLGRP_IPV4_IFADDR);
+                        if (r < 0)
+                                return r;
+
+                        r = socket_broadcast_group_ref(rtnl, RTNLGRP_IPV6_IFADDR);
+                        if (r < 0)
+                                return r;
+
                         break;
                 case RTM_NEWNEIGH:
                 case RTM_DELNEIGH:
-                        groups = neighbor_groups;
-                        n_groups = ELEMENTSOF(neighbor_groups);
+                        r = socket_broadcast_group_ref(rtnl, RTNLGRP_NEIGH);
+                        if (r < 0)
+                                return r;
+
                         break;
                 case RTM_NEWROUTE:
                 case RTM_DELROUTE:
-                        groups = route_groups;
-                        n_groups = ELEMENTSOF(route_groups);
+                        r = socket_broadcast_group_ref(rtnl, RTNLGRP_IPV4_ROUTE);
+                        if (r < 0)
+                                return r;
+
+                        r = socket_broadcast_group_ref(rtnl, RTNLGRP_IPV6_ROUTE);
+                        if (r < 0)
+                                return r;
                         break;
                 case RTM_NEWRULE:
                 case RTM_DELRULE:
-                        groups = rule_groups;
-                        n_groups = ELEMENTSOF(rule_groups);
+                        r = socket_broadcast_group_ref(rtnl, RTNLGRP_IPV4_RULE);
+                        if (r < 0)
+                                return r;
+
+                        r = socket_broadcast_group_ref(rtnl, RTNLGRP_IPV6_RULE);
+                        if (r < 0)
+                                return r;
                         break;
                 case RTM_NEWNEXTHOP:
                 case RTM_DELNEXTHOP:
-                        groups = nexthop_groups;
-                        n_groups = ELEMENTSOF(nexthop_groups);
-                        break;
+                        r = socket_broadcast_group_ref(rtnl, RTNLGRP_NEXTHOP);
+                        if (r < 0)
+                                return r;
+                break;
+
                 default:
                         return -EOPNOTSUPP;
         }
 
-        return netlink_add_match_internal(rtnl, ret_slot, groups, n_groups, type, 0, callback,
-                                          destroy_callback, userdata, description);
+        LIST_PREPEND(match_callbacks, rtnl->match_callbacks, &slot->match_callback);
+
+        /* Set this at last. Otherwise, some failures in above call the destroy callback but some do not. */
+        slot->destroy_callback = destroy_callback;
+
+        if (ret_slot)
+                *ret_slot = slot;
+
+        TAKE_PTR(slot);
+
+        return 0;
 }

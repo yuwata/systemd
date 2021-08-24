@@ -25,10 +25,7 @@ struct reply_callback {
 
 struct match_callback {
         sd_netlink_message_handler_t callback;
-        uint32_t *groups;
-        size_t n_groups;
         uint16_t type;
-        uint8_t cmd; /* used by genl */
 
         LIST_FIELDS(struct match_callback, match_callbacks);
 };
@@ -98,8 +95,8 @@ struct sd_netlink {
         sd_event_source *exit_event_source;
         sd_event *event;
 
-        Hashmap *genl_family_by_name;
-        Hashmap *genl_family_by_id;
+        Hashmap *genl_family_to_nlmsg_type;
+        Hashmap *nlmsg_type_to_genl_family;
 };
 
 struct netlink_attribute {
@@ -129,14 +126,8 @@ struct sd_netlink_message {
         sd_netlink_message *next; /* next in a chain of multi-part messages */
 };
 
-int message_new_empty(sd_netlink *nl, sd_netlink_message **ret);
-int message_new_full(
-                sd_netlink *nl,
-                uint16_t nlmsg_type,
-                const NLTypeSystem *type_system,
-                size_t header_size,
-                sd_netlink_message **ret);
 int message_new(sd_netlink *nl, sd_netlink_message **ret, uint16_t type);
+int message_new_empty(sd_netlink *nl, sd_netlink_message **ret);
 int message_new_synthetic_error(sd_netlink *nl, int error, uint32_t serial, sd_netlink_message **ret);
 uint32_t message_get_serial(sd_netlink_message *m);
 void message_seal(sd_netlink_message *m);
@@ -153,18 +144,6 @@ int socket_broadcast_group_unref(sd_netlink *nl, unsigned group);
 int socket_write_message(sd_netlink *nl, sd_netlink_message *m);
 int socket_writev_message(sd_netlink *nl, sd_netlink_message **m, size_t msgcount);
 int socket_read_message(sd_netlink *nl);
-
-int netlink_add_match_internal(
-                sd_netlink *nl,
-                sd_netlink_slot **ret_slot,
-                const uint32_t *groups,
-                size_t n_groups,
-                uint16_t type,
-                uint8_t cmd,
-                sd_netlink_message_handler_t callback,
-                sd_netlink_destroy_t destroy_callback,
-                void *userdata,
-                const char *description);
 
 /* Make sure callbacks don't destroy the netlink connection */
 #define NETLINK_DONT_DESTROY(nl) \

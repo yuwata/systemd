@@ -8,7 +8,6 @@
 
 #include "alloc-util.h"
 #include "ether-addr-util.h"
-#include "generic-netlink.h"
 #include "macro.h"
 #include "netlink-internal.h"
 #include "netlink-util.h"
@@ -30,7 +29,7 @@ static void test_message_link_bridge(sd_netlink *rtnl) {
         assert_se(sd_netlink_message_append_u32(message, IFLA_BRPORT_COST, 10) >= 0);
         assert_se(sd_netlink_message_close_container(message) >= 0);
 
-        assert_se(sd_netlink_message_rewind(message, rtnl) >= 0);
+        assert_se(sd_netlink_message_rewind(message, NULL) >= 0);
 
         assert_se(sd_netlink_message_enter_container(message, IFLA_PROTINFO) >= 0);
         assert_se(sd_netlink_message_read_u32(message, IFLA_BRPORT_COST, &cost) >= 0);
@@ -132,7 +131,7 @@ static void test_route(sd_netlink *rtnl) {
                 return;
         }
 
-        assert_se(sd_netlink_message_rewind(req, rtnl) >= 0);
+        assert_se(sd_netlink_message_rewind(req, NULL) >= 0);
 
         assert_se(sd_netlink_message_read_in_addr(req, RTA_GATEWAY, &addr_data) >= 0);
         assert_se(addr_data.s_addr == addr.s_addr);
@@ -432,7 +431,7 @@ static void test_container(sd_netlink *rtnl) {
         assert_se(sd_netlink_message_close_container(m) >= 0);
         assert_se(sd_netlink_message_close_container(m) == -EINVAL);
 
-        assert_se(sd_netlink_message_rewind(m, rtnl) >= 0);
+        assert_se(sd_netlink_message_rewind(m, NULL) >= 0);
 
         assert_se(sd_netlink_message_enter_container(m, IFLA_LINKINFO) >= 0);
         assert_se(sd_netlink_message_read_string(m, IFLA_INFO_KIND, &string_data) >= 0);
@@ -515,7 +514,7 @@ static void test_array(void) {
         log_debug("/* %s */", __func__);
 
         assert_se(sd_genl_socket_open(&genl) >= 0);
-        assert_se(sd_genl_message_new(genl, CTRL_GENL_NAME, CTRL_CMD_GETFAMILY, &m) >= 0);
+        assert_se(sd_genl_message_new(genl, SD_GENL_ID_CTRL, CTRL_CMD_GETFAMILY, &m) >= 0);
 
         assert_se(sd_netlink_message_open_container(m, CTRL_ATTR_MCAST_GROUPS) >= 0);
         for (unsigned i = 0; i < 10; i++) {
@@ -572,7 +571,7 @@ static void test_strv(sd_netlink *rtnl) {
         assert_se(sd_netlink_message_close_container(m) >= 0);
 
         message_seal(m);
-        assert_se(sd_netlink_message_rewind(m, rtnl) >= 0);
+        assert_se(sd_netlink_message_rewind(m, NULL) >= 0);
 
         assert_se(sd_netlink_message_read_strv(m, IFLA_PROP_LIST, IFLA_ALT_IFNAME, &names_out) >= 0);
         assert_se(strv_equal(names_in, names_out));
