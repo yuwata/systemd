@@ -18,6 +18,7 @@
 #include "bus-log-control-api.h"
 #include "bus-map-properties.h"
 #include "bus-polkit.h"
+#include "bus-wait-for-jobs.h"
 #include "clock-util.h"
 #include "conf-files.h"
 #include "def.h"
@@ -459,6 +460,12 @@ static int match_job_removed(sd_bus_message *m, void *userdata, sd_bus_error *er
         if (r < 0) {
                 bus_log_parse_error(r);
                 return 0;
+        }
+
+        if (sd_bus_message_is_signal(m, NULL, "JobRemovedEx")) {
+                r = sd_bus_message_skip(m, "ay");
+                if (r < 0)
+                        return bus_log_parse_error(r);
         }
 
         LIST_FOREACH(units, u, c->units)
@@ -956,14 +963,9 @@ static int method_set_ntp(sd_bus_message *m, void *userdata, sd_bus_error *error
                 u->path = mfree(u->path);
 
         if (!c->slot_job_removed) {
-                r = bus_match_signal_async(
-                                bus,
-                                &slot,
-                                bus_systemd_mgr,
-                                "JobRemoved",
-                                match_job_removed, NULL, c);
+                r = bus_subscribe_and_match_job_removed_async(bus, match_job_removed, c);
                 if (r < 0)
-                        return r;
+                        return log_error_errno(r, "Failed to enable subscription: %m");
         }
 
         if (enable)

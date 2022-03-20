@@ -12,5 +12,9 @@ BusWaitForJobs* bus_wait_for_jobs_free(BusWaitForJobs *d);
 int bus_wait_for_jobs_add(BusWaitForJobs *d, const char *path);
 int bus_wait_for_jobs(BusWaitForJobs *d, bool quiet, const char* const* extra_args);
 int bus_wait_for_jobs_one(BusWaitForJobs *d, const char *path, bool quiet, const char* const* extra_args);
+int bus_subscribe_and_match_job_removed_async(sd_bus *bus, sd_bus_message_handler_t match_callback, void *userdata);
+static inline int bus_subscribe_async(sd_bus *bus) {
+        return bus_subscribe_and_match_job_removed_async(bus, NULL, NULL);
+}
 
 DEFINE_TRIVIAL_CLEANUP_FUNC(BusWaitForJobs*, bus_wait_for_jobs_free);

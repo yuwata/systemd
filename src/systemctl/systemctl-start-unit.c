@@ -348,7 +348,7 @@ int verb_start(int argc, char *argv[], void *userdata) {
         }
 
         if (arg_wait) {
-                r = bus_call_method_async(bus, NULL, bus_systemd_mgr, "Subscribe", NULL, NULL, NULL);
+                r = bus_subscribe_async(bus);
                 if (r < 0)
                         return log_error_errno(r, "Failed to enable subscription: %m");
 

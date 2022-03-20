@@ -13,6 +13,7 @@
 #include "bus-locator.h"
 #include "bus-log-control-api.h"
 #include "bus-polkit.h"
+#include "bus-wait-for-jobs.h"
 #include "cgroup-util.h"
 #include "daemon-util.h"
 #include "def.h"
@@ -645,9 +646,9 @@ static int manager_connect_bus(Manager *m) {
         if (r < 0)
                 return r;
 
-        r = bus_match_signal_async(m->bus, NULL, bus_systemd_mgr, "JobRemoved", match_job_removed, NULL, m);
+        r = bus_subscribe_and_match_job_removed_async(m->bus, match_job_removed, m);
         if (r < 0)
-                return log_error_errno(r, "Failed to request match for JobRemoved: %m");
+                return log_error_errno(r, "Failed to enable subscription and match JobRemoved signal: %m");
 
         r = bus_match_signal_async(m->bus, NULL, bus_systemd_mgr, "UnitRemoved", match_unit_removed, NULL, m);
         if (r < 0)
@@ -667,10 +668,6 @@ static int manager_connect_bus(Manager *m) {
         r = bus_match_signal_async(m->bus, NULL, bus_systemd_mgr, "Reloading", match_reloading, NULL, m);
         if (r < 0)
                 return log_error_errno(r, "Failed to request match for Reloading: %m");
-
-        r = bus_call_method_async(m->bus, NULL, bus_systemd_mgr, "Subscribe", NULL, NULL, NULL);
-        if (r < 0)
-                return log_error_errno(r, "Failed to enable subscription: %m");
 
         r = sd_bus_request_name_async(m->bus, NULL, "org.freedesktop.login1", 0, NULL, NULL);
         if (r < 0)

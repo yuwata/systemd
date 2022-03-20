@@ -5,6 +5,7 @@
 #include "set.h"
 #include "bus-util.h"
 #include "bus-internal.h"
+#include "bus-locator.h"
 #include "unit-def.h"
 #include "escape.h"
 #include "strv.h"
@@ -48,6 +49,12 @@ static int match_job_removed(sd_bus_message *m, void *userdata, sd_bus_error *er
                 return 0;
         }
 
+        if (sd_bus_message_is_signal(m, NULL, "JobRemovedEx")) {
+                r = sd_bus_message_skip(m, "ay");
+                if (r < 0)
+                        return bus_log_parse_error(r);
+        }
+
         found = set_remove(d->jobs, (char*) path);
         if (!found)
                 return 0;
@@ -78,12 +85,162 @@ BusWaitForJobs* bus_wait_for_jobs_free(BusWaitForJobs *d) {
         return mfree(d);
 }
 
+static int has_subscribe_with_flags = -1;
+typedef struct SubscribeUserdata {
+        sd_bus_message_handler_t match_callback;
+        void *userdata;
+} SubscribeUserdata;
+
+static int bus_subscribe_handler(sd_bus_message *m, void *userdata, sd_bus_error *ret_error) {
+        _cleanup_free_ SubscribeUserdata *u = userdata; /* This may be NULL. */
+        const sd_bus_error *e;
+        int r;
+
+        assert(m);
+
+        e = sd_bus_message_get_error(m);
+        if (e) {
+                r = sd_bus_error_get_errno(e);
+                log_full_errno(sd_bus_error_has_name(e, SD_BUS_ERROR_UNKNOWN_METHOD) ? LOG_DEBUG : LOG_WARNING, r,
+                               "Failed to call SubscribeWithFlags method, "
+                               "falling back to legacy Subscribed and JobRemoved: %s",
+                               bus_error_message(e, r));
+
+                has_subscribe_with_flags = false;
+                (void) bus_subscribe_and_match_job_removed_async(sd_bus_message_get_bus(m),
+                                                                 u ? u->match_callback : NULL,
+                                                                 u ? u->userdata : NULL);
+                return 0;
+        }
+
+        has_subscribe_with_flags = true;
+
+        if (u) {
+                r = bus_match_signal_async(
+                                sd_bus_message_get_bus(m),
+                                NULL,
+                                bus_systemd_mgr,
+                                "JobRemovedEx",
+                                u->match_callback,
+                                NULL,
+                                u->userdata);
+                if (r < 0)
+                        log_warning_errno(r, "Failed to add match for JobRemovedEx, ignoring: %m");
+        }
+
+        return 0;
+}
+
+int bus_subscribe_and_match_job_removed_async(sd_bus *bus, sd_bus_message_handler_t match_callback, void *userdata) {
+        int r;
+
+        assert(bus);
+
+        if (has_subscribe_with_flags != 0) {
+                _cleanup_free_ SubscribeUserdata *u = NULL;
+
+                if (match_callback) {
+                        if (has_subscribe_with_flags > 0) {
+                                /* We know PID1 supports both SubscribeWithFlags and JobRemovedEx. */
+                                r = bus_match_signal_async(bus, NULL, bus_systemd_mgr, "JobRemovedEx", match_callback, NULL, userdata);
+                                if (r < 0)
+                                        return log_warning_errno(r, "Failed to add match for JobRemovedEx: %m");
+                        } else {
+                                u = new(SubscribeUserdata, 1);
+                                if (!u)
+                                        return log_oom();
+
+                                *u = (SubscribeUserdata) {
+                                        .match_callback = match_callback,
+                                        .userdata = userdata,
+                                };
+                        }
+                }
+
+                r = bus_call_method_async(
+                                bus,
+                                NULL,
+                                bus_systemd_mgr,
+                                "SubscribeWithFlags",
+                                has_subscribe_with_flags > 0 ? NULL : bus_subscribe_handler,
+                                NULL, "t", u);
+                if (r < 0)
+                        return log_warning_errno(r, "Failed to call SubscribeWithFlags method: %m");
+
+                TAKE_PTR(u);
+
+        } else {
+                /* We know PID1 does NOT support both SubscribeWithFlags and JobRemovedEx. */
+                if (match_callback) {
+                        r = bus_match_signal_async(bus, NULL, bus_systemd_mgr, "JobRemoved", match_callback, NULL, userdata);
+                        if (r < 0)
+                                return log_warning_errno(r, "Failed to add match for JobRemoved: %m");
+                }
+
+                r = bus_call_method_async(
+                                bus,
+                                NULL,
+                                bus_systemd_mgr,
+                                "Subscribe",
+                                NULL, NULL, NULL);
+                if (r < 0)
+                        return log_warning_errno(r, "Failed to call Subscribe method: %m");
+        }
+
+        return 0;
+}
+
+static int bus_subscribe(sd_bus *bus) {
+        _cleanup_(sd_bus_error_free) sd_bus_error error = SD_BUS_ERROR_NULL;
+        _cleanup_(sd_bus_message_unrefp) sd_bus_message *reply = NULL;
+        int r;
+
+        assert(bus);
+
+        if (has_subscribe_with_flags != 0) {
+                r = bus_call_method(
+                                bus,
+                                bus_systemd_mgr,
+                                "SubscribeWithFlags",
+                                &error, &reply,
+                                "t", 0);
+                if (r < 0 && !sd_bus_error_has_name(&error, SD_BUS_ERROR_UNKNOWN_METHOD))
+                        return log_warning_errno(r, "Failed to call SubscribeWithFlags: %s", bus_error_message(&error, r));
+
+                has_subscribe_with_flags = r >= 0;
+                if (r >= 0)
+                        return 1; /* SubscribeWithFlags is called. */
+
+                /* Fallback to Subscribe method. */
+                sd_bus_error_free(&error);
+                reply = sd_bus_message_unref(reply);
+        }
+
+        r = bus_call_method(
+                        bus,
+                        bus_systemd_mgr,
+                        "Subscribe",
+                        &error, &reply,
+                        NULL);
+        if (r < 0)
+                return log_warning_errno(r, "Failed to call Subscribe method: %s", bus_error_message(&error, r));
+
+        return 0; /* Subscribe is called. */
+}
+
 int bus_wait_for_jobs_new(sd_bus *bus, BusWaitForJobs **ret) {
         _cleanup_(bus_wait_for_jobs_freep) BusWaitForJobs *d = NULL;
+        bool new_signal_available = false;
         int r;
 
         assert(bus);
         assert(ret);
+
+        r = bus_subscribe(bus);
+        if (r < 0)
+                return r;
+
+        new_signal_available = r > 0;
 
         d = new(BusWaitForJobs, 1);
         if (!d)
@@ -102,7 +259,7 @@ int bus_wait_for_jobs_new(sd_bus *bus, BusWaitForJobs **ret) {
                         bus->bus_client ? "org.freedesktop.systemd1" : NULL,
                         "/org/freedesktop/systemd1",
                         "org.freedesktop.systemd1.Manager",
-                        "JobRemoved",
+                        new_signal_available ? "JobRemovedEx" : "JobRemoved",
                         match_job_removed, NULL, d);
         if (r < 0)
                 return r;
