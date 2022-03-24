@@ -382,8 +382,15 @@ int close_all_fds(const int except[], size_t n_except) {
         if (!d)
                 return close_all_fds_frugal(except, n_except); /* ultimate fallback if /proc/ is not available */
 
-        FOREACH_DIRENT(de, d, return -errno) {
+        for (;;) {
+                struct dirent *de;
                 int fd = -1, q;
+
+                q = readdir_safe(d, &de);
+                if (q < 0)
+                        return q;
+                if (q == 0)
+                        break;
 
                 if (!IN_SET(de->d_type, DT_LNK, DT_UNKNOWN))
                         continue;

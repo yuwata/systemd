@@ -534,6 +534,7 @@ int get_files_in_directory(const char *path, char ***list) {
         _cleanup_strv_free_ char **l = NULL;
         _cleanup_closedir_ DIR *d = NULL;
         size_t n = 0;
+        int r;
 
         assert(path);
 
@@ -545,7 +546,15 @@ int get_files_in_directory(const char *path, char ***list) {
         if (!d)
                 return -errno;
 
-        FOREACH_DIRENT_ALL(de, d, return -errno) {
+        for (;;) {
+                struct dirent *de;
+
+                r = readdir_ensure_type(d, &de);
+                if (r < 0)
+                        return r;
+                if (r == 0)
+                        break;
+
                 if (!dirent_is_file(de))
                         continue;
 

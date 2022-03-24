@@ -89,8 +89,15 @@ int open_extension_release(const char *root, const char *extension, char **ret_p
                                 return log_debug_errno(r, "Cannot open %s/usr/lib/extension-release.d/, ignoring: %m", root);
 
                         r = -ENOENT;
-                        FOREACH_DIRENT(de, extension_release_dir, return -errno) {
+                        for (;;) {
+                                struct dirent *de;
                                 int k;
+
+                                k = readdir_safe(extension_release_dir, &de);
+                                if (k < 0)
+                                        return k;
+                                if (k == 0)
+                                        break;
 
                                 if (!IN_SET(de->d_type, DT_REG, DT_UNKNOWN))
                                         continue;

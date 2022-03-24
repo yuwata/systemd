@@ -60,9 +60,16 @@ int pull_find_old_etags(
 
         _cleanup_strv_free_ char **ans = NULL;
 
-        FOREACH_DIRENT_ALL(de, d, return -errno) {
+        for (;;) {
                 _cleanup_free_ char *u = NULL;
+                struct dirent *de;
                 const char *a, *b;
+
+                r = readdir_ensure_type(d, &de);
+                if (r < 0)
+                        return r;
+                if (r == 0)
+                        break;
 
                 if (de->d_type != DT_UNKNOWN &&
                     de->d_type != dt)

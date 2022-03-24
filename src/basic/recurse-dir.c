@@ -6,6 +6,7 @@
 #include "fileio.h"
 #include "missing_syscall.h"
 #include "mountpoint-util.h"
+#include "path-util.h"
 #include "recurse-dir.h"
 #include "sort-util.h"
 

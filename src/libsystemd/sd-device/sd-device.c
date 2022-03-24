@@ -1777,12 +1777,14 @@ static int device_sysattrs_read_all_internal(sd_device *device, const char *subd
         if (!dir)
                 return -errno;
 
-        FOREACH_DIRENT_ALL(de, dir, return -errno) {
+        for (;;) {
                 _cleanup_free_ char *path = NULL, *p = NULL;
                 struct stat statbuf;
+                struct dirent *de;
 
-                if (dot_or_dot_dot(de->d_name))
-                        continue;
+                r = readdir_no_dot(dir, &de);
+                if (r <= 0)
+                        return r;
 
                 /* only handle symlinks, regular files, and directories */
                 if (!IN_SET(de->d_type, DT_LNK, DT_REG, DT_DIR))
@@ -1817,8 +1819,6 @@ static int device_sysattrs_read_all_internal(sd_device *device, const char *subd
                 if (r < 0)
                         return r;
         }
-
-        return 0;
 }
 
 static int device_sysattrs_read_all(sd_device *device) {

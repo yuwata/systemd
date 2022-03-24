@@ -198,28 +198,30 @@ int cg_enumerate_subgroups(const char *controller, const char *path, DIR **_d) {
         return 0;
 }
 
-int cg_read_subgroup(DIR *d, char **fn) {
-        assert(d);
-        assert(fn);
+int cg_read_subgroup(DIR *d, char **ret) {
+        int r;
 
-        FOREACH_DIRENT_ALL(de, d, return -errno) {
+        assert(d);
+        assert(ret);
+
+        for (;;) {
+                struct dirent *de;
                 char *b;
 
-                if (de->d_type != DT_DIR)
-                        continue;
+                r = readdir_no_dot(d, &de);
+                if (r <= 0)
+                        return r;
 
-                if (dot_or_dot_dot(de->d_name))
+                if (de->d_type != DT_DIR)
                         continue;
 
                 b = strdup(de->d_name);
                 if (!b)
                         return -ENOMEM;
 
-                *fn = b;
+                *ret = b;
                 return 1;
         }
-
-        return 0;
 }
 
 int cg_rmdir(const char *controller, const char *path) {

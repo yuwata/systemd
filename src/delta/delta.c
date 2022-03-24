@@ -308,7 +308,15 @@ static int enumerate_dir(
                 return log_error_errno(errno, "Failed to open %s: %m", path);
         }
 
-        FOREACH_DIRENT_ALL(de, d, return -errno) {
+        for (;;) {
+                struct dirent *de;
+
+                r = readdir_ensure_type(d, &de);
+                if (r < 0)
+                        return r;
+                if (r == 0)
+                        break;
+
                 if (dropins && de->d_type == DT_DIR && endswith(de->d_name, ".d")) {
                         if (!GREEDY_REALLOC0(dirs, n_dirs + 2))
                                 return -ENOMEM;

@@ -12,8 +12,25 @@
 #include "path-util.h"
 #include "strv.h"
 
-static void closedir_wrapper(void* v) {
+static void closedir_wrapper(void *v) {
         (void) closedir(v);
+}
+
+static struct dirent *readdir_wrapper(void *d) {
+        struct dirent *de;
+        int r;
+
+        assert(d);
+
+        r = readdir_no_dot(d, &de);
+        if (r < 0) {
+                errno = -r;
+                return NULL;
+        }
+        if (r == 0)
+                return NULL;
+
+        return de;
 }
 
 int safe_glob(const char *path, int flags, glob_t *pglob) {
@@ -25,7 +42,7 @@ int safe_glob(const char *path, int flags, glob_t *pglob) {
         if (!pglob->gl_closedir)
                 pglob->gl_closedir = closedir_wrapper;
         if (!pglob->gl_readdir)
-                pglob->gl_readdir = (struct dirent *(*)(void *)) readdir_no_dot;
+                pglob->gl_readdir = readdir_wrapper;
         if (!pglob->gl_opendir)
                 pglob->gl_opendir = (void *(*)(const char *)) opendir;
         if (!pglob->gl_lstat)

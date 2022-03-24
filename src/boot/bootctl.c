@@ -417,12 +417,19 @@ static int enumerate_binaries(const char *esp_path, const char *path, const char
                 if (errno == ENOENT)
                         return 0;
 
-                return log_error_errno(errno, "Failed to read \"%s\": %m", p);
+                return log_error_errno(errno, "Failed to open \"%s\": %m", p);
         }
 
-        FOREACH_DIRENT(de, d, break) {
+        for (;;) {
                 _cleanup_free_ char *v = NULL;
                 _cleanup_close_ int fd = -1;
+                struct dirent *de;
+
+                r = readdir_safe(d, &de);
+                if (r < 0)
+                        return log_error_errno(r, "Failed to read \"%s\": %m", p);
+                if (r == 0)
+                        break;
 
                 if (!endswith_no_case(de->d_name, ".efi"))
                         continue;
@@ -932,8 +939,15 @@ static int install_binaries(const char *esp_path, bool force) {
         if (!d)
                 return log_error_errno(errno, "Failed to open \""BOOTLIBDIR"\": %m");
 
-        FOREACH_DIRENT(de, d, return log_error_errno(errno, "Failed to read \""BOOTLIBDIR"\": %m")) {
+        for (;;) {
+                struct dirent *de;
                 int k;
+
+                k = readdir_safe(d, &de);
+                if (k < 0)
+                        return log_error_errno(k, "Failed to read \""BOOTLIBDIR"\": %m");
+                if (k == 0)
+                        break;
 
                 if (!endswith_no_case(de->d_name, ".efi") && !endswith_no_case(de->d_name, ".efi.signed"))
                         continue;
@@ -1128,9 +1142,16 @@ static int remove_boot_efi(const char *esp_path) {
                 return log_error_errno(errno, "Failed to open directory \"%s\": %m", p);
         }
 
-        FOREACH_DIRENT(de, d, break) {
+        for (;;) {
                 _cleanup_close_ int fd = -1;
                 _cleanup_free_ char *v = NULL;
+                struct dirent *de;
+
+                r = readdir_safe(d, &de);
+                if (r < 0)
+                        return log_error_errno(r, "Failed to read directory \"%s\": %m", p);
+                if (r == 0)
+                        break;
 
                 if (!endswith_no_case(de->d_name, ".efi"))
                         continue;

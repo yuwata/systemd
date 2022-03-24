@@ -160,7 +160,7 @@ static int add_locales_from_archive(Set *locales) {
         return r;
 }
 
-static int add_locales_from_libdir (Set *locales) {
+static int add_locales_from_libdir(Set *locales) {
         _cleanup_closedir_ DIR *dir = NULL;
         int r;
 
@@ -168,8 +168,13 @@ static int add_locales_from_libdir (Set *locales) {
         if (!dir)
                 return errno == ENOENT ? 0 : -errno;
 
-        FOREACH_DIRENT(de, dir, return -errno) {
+        for (;;) {
+                struct dirent *de;
                 char *z;
+
+                r = readdir_safe(dir, &de);
+                if (r <= 0)
+                        return r;
 
                 if (de->d_type != DT_DIR)
                         continue;
@@ -182,8 +187,6 @@ static int add_locales_from_libdir (Set *locales) {
                 if (r < 0 && r != -EEXIST)
                         return r;
         }
-
-        return 0;
 }
 
 int get_locales(char ***ret) {

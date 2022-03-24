@@ -106,8 +106,12 @@ static int determine_path_usage(
 
         *ret_free = ss.f_bsize * ss.f_bavail;
         *ret_used = 0;
-        FOREACH_DIRENT_ALL(de, d, break) {
+        for (;;) {
+                struct dirent *de;
                 struct stat st;
+
+                if (readdir_ensure_type(d, &de) <= 0)
+                        break;
 
                 if (!endswith(de->d_name, ".journal") &&
                     !endswith(de->d_name, ".journal~"))

@@ -113,11 +113,20 @@ static int detect_vm_device_tree(void) {
                         return -errno;
                 }
 
-                FOREACH_DIRENT(de, dir, return -errno)
+                for (;;) {
+                        struct dirent *de;
+
+                        r = readdir_safe(dir, &de);
+                        if (r < 0)
+                                return r;
+                        if (r == 0)
+                                break;
+
                         if (strstr(de->d_name, "fw-cfg")) {
                                 log_debug("Virtualization QEMU: \"fw-cfg\" present in /proc/device-tree/%s", de->d_name);
                                 return VIRTUALIZATION_QEMU;
                         }
+                }
 
                 log_debug("No virtualization found in /proc/device-tree/*");
                 return VIRTUALIZATION_NONE;

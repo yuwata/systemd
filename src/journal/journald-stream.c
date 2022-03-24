@@ -860,10 +860,17 @@ int server_restore_streams(Server *s, FDSet *fds) {
                 return log_warning_errno(errno, "Failed to enumerate %s: %m", path);
         }
 
-        FOREACH_DIRENT(de, d, goto fail) {
+        for (;;) {
                 unsigned long st_dev, st_ino;
                 bool found = false;
+                struct dirent *de;
                 int fd;
+
+                r = readdir_safe(d, &de);
+                if (r < 0)
+                        return log_error_errno(r, "Failed to read streams directory: %m");
+                if (r == 0)
+                        return 0;
 
                 if (sscanf(de->d_name, "%lu:%lu", &st_dev, &st_ino) != 2)
                         continue;
@@ -894,11 +901,6 @@ int server_restore_streams(Server *s, FDSet *fds) {
                 if (r < 0)
                         safe_close(fd);
         }
-
-        return 0;
-
-fail:
-        return log_error_errno(errno, "Failed to read streams directory: %m");
 }
 
 int server_open_stdout_socket(Server *s, const char *stdout_socket) {

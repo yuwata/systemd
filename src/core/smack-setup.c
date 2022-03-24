@@ -51,7 +51,7 @@ static int fdopen_unlocked_at(int dfd, const char *dir, const char *name, int *s
 static int write_access2_rules(const char *srcdir) {
         _cleanup_close_ int load2_fd = -1, change_fd = -1;
         _cleanup_closedir_ DIR *dir = NULL;
-        int dfd = -1, r = 0;
+        int dfd = -1, r = 0, q;
 
         load2_fd = open("/sys/fs/smackfs/load2", O_RDWR|O_CLOEXEC|O_NONBLOCK|O_NOCTTY);
         if (load2_fd < 0)  {
@@ -78,8 +78,15 @@ static int write_access2_rules(const char *srcdir) {
         dfd = dirfd(dir);
         assert(dfd >= 0);
 
-        FOREACH_DIRENT(entry, dir, return 0) {
+        for (;;) {
                 _cleanup_fclose_ FILE *policy = NULL;
+                struct dirent *entry;
+
+                q = readdir_safe(dir, &entry);
+                if (q < 0)
+                        return q;
+                if (q == 0)
+                        break;
 
                 if (!dirent_is_file(entry))
                         continue;
@@ -90,7 +97,6 @@ static int write_access2_rules(const char *srcdir) {
                 /* load2 write rules in the kernel require a line buffered stream */
                 for (;;) {
                         _cleanup_free_ char *buf = NULL, *sbj = NULL, *obj = NULL, *acc1 = NULL, *acc2 = NULL;
-                        int q;
 
                         q = read_line(policy, NAME_MAX, &buf);
                         if (q < 0)
@@ -123,7 +129,7 @@ static int write_access2_rules(const char *srcdir) {
 static int write_cipso2_rules(const char *srcdir) {
         _cleanup_close_ int cipso2_fd = -1;
         _cleanup_closedir_ DIR *dir = NULL;
-        int dfd = -1, r = 0;
+        int dfd = -1, r = 0, q;
 
         cipso2_fd = open("/sys/fs/smackfs/cipso2", O_RDWR|O_CLOEXEC|O_NONBLOCK|O_NOCTTY);
         if (cipso2_fd < 0)  {
@@ -143,8 +149,15 @@ static int write_cipso2_rules(const char *srcdir) {
         dfd = dirfd(dir);
         assert(dfd >= 0);
 
-        FOREACH_DIRENT(entry, dir, return 0) {
+        for (;;) {
                 _cleanup_fclose_ FILE *policy = NULL;
+                struct dirent *entry;
+
+                q = readdir_safe(dir, &entry);
+                if (q < 0)
+                        return q;
+                if (q == 0)
+                        break;
 
                 if (!dirent_is_file(entry))
                         continue;
@@ -155,7 +168,6 @@ static int write_cipso2_rules(const char *srcdir) {
                 /* cipso2 write rules in the kernel require a line buffered stream */
                 for (;;) {
                         _cleanup_free_ char *buf = NULL;
-                        int q;
 
                         q = read_line(policy, NAME_MAX, &buf);
                         if (q < 0)
@@ -182,7 +194,7 @@ static int write_cipso2_rules(const char *srcdir) {
 static int write_netlabel_rules(const char *srcdir) {
         _cleanup_fclose_ FILE *dst = NULL;
         _cleanup_closedir_ DIR *dir = NULL;
-        int dfd = -1, r = 0;
+        int dfd = -1, r = 0, q;
 
         dst = fopen("/sys/fs/smackfs/netlabel", "we");
         if (!dst)  {
@@ -202,8 +214,15 @@ static int write_netlabel_rules(const char *srcdir) {
         dfd = dirfd(dir);
         assert(dfd >= 0);
 
-        FOREACH_DIRENT(entry, dir, return 0) {
+        for (;;) {
                 _cleanup_fclose_ FILE *policy = NULL;
+                struct dirent *entry;
+
+                q = readdir_safe(dir, &entry);
+                if (q < 0)
+                        return q;
+                if (q == 0)
+                        break;
 
                 if (fdopen_unlocked_at(dfd, srcdir, entry->d_name, &r, &policy) < 0)
                         continue;
@@ -211,7 +230,6 @@ static int write_netlabel_rules(const char *srcdir) {
                 /* load2 write rules in the kernel require a line buffered stream */
                 for (;;) {
                         _cleanup_free_ char *buf = NULL;
-                        int q;
 
                         q = read_line(policy, NAME_MAX, &buf);
                         if (q < 0)

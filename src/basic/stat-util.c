@@ -21,6 +21,7 @@
 #include "missing_syscall.h"
 #include "nulstr-util.h"
 #include "parse-util.h"
+#include "path-util.h"
 #include "stat-util.h"
 #include "string-util.h"
 

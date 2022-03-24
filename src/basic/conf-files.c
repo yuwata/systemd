@@ -46,9 +46,14 @@ static int files_add(
                 return log_debug_errno(errno, "Failed to open directory '%s': %m", dirpath);
         }
 
-        FOREACH_DIRENT(de, dir, return -errno) {
+        for (;;) {
+                struct dirent *de;
                 struct stat st;
                 char *p, *key;
+
+                r = readdir_safe(dir, &de);
+                if (r <= 0)
+                        return r;
 
                 /* Does this match the suffix? */
                 if (suffix && !endswith(de->d_name, suffix))
@@ -128,8 +133,6 @@ static int files_add(
 
                 assert(r > 0);
         }
-
-        return 0;
 }
 
 static int base_cmp(char * const *a, char * const *b) {

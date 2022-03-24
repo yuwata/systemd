@@ -288,6 +288,7 @@ static void manager_print_jobs_in_progress(Manager *m) {
 
 static int have_ask_password(void) {
         _cleanup_closedir_ DIR *dir = NULL;
+        int r;
 
         dir = opendir("/run/systemd/ask-password");
         if (!dir) {
@@ -297,10 +298,18 @@ static int have_ask_password(void) {
                         return -errno;
         }
 
-        FOREACH_DIRENT_ALL(de, dir, return -errno)
+        for (;;) {
+                struct dirent *de;
+
+                r = readdir_ensure_type(dir, &d);
+                if (r < 0)
+                        return r;
+                if (r == 0)
+                        return false;
+
                 if (startswith(de->d_name, "ask."))
                         return true;
-        return false;
+        }
 }
 
 static int manager_dispatch_ask_password_fd(sd_event_source *source,

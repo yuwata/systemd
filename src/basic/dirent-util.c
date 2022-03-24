@@ -65,41 +65,45 @@ bool dirent_is_file_with_suffix(const struct dirent *de, const char *suffix) {
         return endswith(de->d_name, suffix);
 }
 
-struct dirent *readdir_ensure_type(DIR *d) {
+int readdir_full(DIR *dir, struct dirent **ret, ReadDirectoryFlag flag) {
         int r;
 
-        assert(d);
+        assert(dir);
 
-        /* Like readdir(), but fills in .d_type if it is DT_UNKNOWN */
+        /* Like readdir(), but fills in .d_type if it is DT_UNKNOWN.
+         * Returns 0 if no file is found any more.
+         * Returns 1 if a file is found. */
 
         for (;;) {
                 struct dirent *de;
 
                 errno = 0;
-                de = readdir(d);
-                if (!de)
-                        return NULL;
+                de = readdir(dir);
+                if (!de) {
+                        if (errno > 0)
+                                return -errno;
 
-                r = dirent_ensure_type(d, de);
-                if (r >= 0)
-                        return de;
-                if (r != -ENOENT) {
-                        errno = -r; /* We want to be compatible with readdir(), hence propagate error via errno here */
-                        return NULL;
+                        if (ret)
+                                *ret = NULL;
+                        return 0;
                 }
 
-                /* Vanished by now? Then skip immediately to next */
-        }
-}
+                r = dirent_ensure_type(dir, de);
+                if (r == -ENOENT)
+                        continue; /* Vanished by now? Then skip immediately to next */
+                if (r < 0)
+                        return r;
 
-struct dirent *readdir_no_dot(DIR *d) {
-        assert(d);
+                if (FLAGS_SET(flag, READ_DIRECTORY_SKIP_DOT_OR_DOT_DOT) &&
+                    dot_or_dot_dot(de->d_name))
+                        continue;
 
-        for (;;) {
-                struct dirent *de;
+                if (FLAGS_SET(flag, READ_DIRECTORY_SKIP_HIDDEN_OR_BACKUP_FILE) &&
+                    hidden_or_backup_file(de->d_name))
+                        continue;
 
-                de = readdir_ensure_type(d);
-                if (!de || !dot_or_dot_dot(de->d_name))
-                        return de;
+                if (ret)
+                        *ret = de;
+                return 1;
         }
 }

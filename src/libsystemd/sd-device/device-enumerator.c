@@ -10,6 +10,7 @@
 #include "device-util.h"
 #include "dirent-util.h"
 #include "fd-util.h"
+#include "path-util.h"
 #include "set.h"
 #include "sort-util.h"
 #include "string-util.h"
@@ -568,17 +569,22 @@ static int enumerator_scan_dir_and_add_devices(sd_device_enumerator *enumerator,
                 /* this is necessarily racey, so ignore missing directories */
                 return (errno == ENOENT && (subdir1 || subdir2)) ? 0 : -errno;
 
-        FOREACH_DIRENT_ALL(de, dir, return -errno) {
+        for (;;) {
                 _cleanup_(sd_device_unrefp) sd_device *device = NULL;
-                char syspath[strlen(path) + 1 + strlen(de->d_name) + 1];
+                _cleanup_free_ char *syspath = NULL;
+                struct dirent *de;
 
-                if (de->d_name[0] == '.')
-                        continue;
+                k = readdir_safe(dir, &de);
+                if (k < 0)
+                        return k;
+                if (k == 0)
+                        break;
 
                 if (!match_sysname(enumerator, de->d_name))
                         continue;
 
-                (void) sprintf(syspath, "%s%s", path, de->d_name);
+                if (asprintf(&syspath, "%s%s", path, de->d_name) < 0)
+                        return -ENOMEM;
 
                 k = sd_device_new_from_syspath(&device, syspath);
                 if (k < 0) {
@@ -651,8 +657,15 @@ static int enumerator_scan_dir(sd_device_enumerator *enumerator, const char *bas
 
         log_debug("sd-device-enumerator: Scanning %s", path);
 
-        FOREACH_DIRENT_ALL(de, dir, return -errno) {
+        for (;;) {
+                struct dirent *de;
                 int k;
+
+                k = readdir_safe(dir, &de);
+                if (k < 0)
+                        return k;
+                if (k == 0)
+                        break;
 
                 if (de->d_name[0] == '.')
                         continue;
@@ -687,10 +700,17 @@ static int enumerator_scan_devices_tag(sd_device_enumerator *enumerator, const c
 
         /* TODO: filter away subsystems? */
 
-        FOREACH_DIRENT_ALL(de, dir, return -errno) {
+        for (;;) {
                 _cleanup_(sd_device_unrefp) sd_device *device = NULL;
                 const char *subsystem, *sysname;
+                struct dirent *de;
                 int k;
+
+                k = readdir_safe(dir, &de);
+                if (k < 0)
+                        return k;
+                if (k == 0)
+                        break;
 
                 if (de->d_name[0] == '.')
                         continue;
@@ -809,12 +829,16 @@ static int parent_crawl_children(sd_device_enumerator *enumerator, const char *p
         if (!dir)
                 return log_debug_errno(errno, "sd-device-enumerator: Failed to open parent directory %s: %m", path);
 
-        FOREACH_DIRENT_ALL(de, dir, return -errno) {
+        for (;;) {
                 _cleanup_free_ char *child = NULL;
+                struct dirent *de;
                 int k;
 
-                if (de->d_name[0] == '.')
-                        continue;
+                k = readdir_safe(dir, &de);
+                if (k < 0)
+                        return k;
+                if (k == 0)
+                        break;
 
                 if (de->d_type != DT_DIR)
                         continue;

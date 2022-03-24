@@ -4,30 +4,28 @@
 #include <dirent.h>
 #include <errno.h>
 #include <stdbool.h>
+#include <stddef.h>
 
 #include "macro.h"
-#include "path-util.h"
 
 bool dirent_is_file(const struct dirent *de) _pure_;
 bool dirent_is_file_with_suffix(const struct dirent *de, const char *suffix) _pure_;
 
-struct dirent *readdir_ensure_type(DIR *d);
-struct dirent *readdir_no_dot(DIR *dirp);
+typedef enum ReadDirectoryFlag {
+        READ_DIRECTORY_SKIP_DOT_OR_DOT_DOT        = 1 << 0,
+        READ_DIRECTORY_SKIP_HIDDEN_OR_BACKUP_FILE = 1 << 1,
+} ReadDirectoryFlag;
 
-#define FOREACH_DIRENT_ALL(de, d, on_error)                             \
-        for (struct dirent *(de) = readdir_ensure_type(d);; (de) = readdir_ensure_type(d)) \
-                if (!de) {                                              \
-                        if (errno > 0) {                                \
-                                on_error;                               \
-                        }                                               \
-                        break;                                          \
-                } else
-
-#define FOREACH_DIRENT(de, d, on_error)                                 \
-        FOREACH_DIRENT_ALL(de, d, on_error)                             \
-             if (hidden_or_backup_file((de)->d_name))                   \
-                     continue;                                          \
-             else
+int readdir_full(DIR *dir, struct dirent **ret, ReadDirectoryFlag flag);
+static inline int readdir_ensure_type(DIR *dir, struct dirent **ret) {
+        return readdir_full(dir, ret, 0);
+}
+static inline int readdir_no_dot(DIR *dir, struct dirent **ret) {
+        return readdir_full(dir, ret, READ_DIRECTORY_SKIP_DOT_OR_DOT_DOT);
+}
+static inline int readdir_safe(DIR *dir, struct dirent **ret) {
+        return readdir_full(dir, ret, READ_DIRECTORY_SKIP_HIDDEN_OR_BACKUP_FILE);
+}
 
 /* Maximum space one dirent structure might require at most */
 #define DIRENT_SIZE_MAX CONST_MAX(sizeof(struct dirent), offsetof(struct dirent, d_name) + NAME_MAX + 1)

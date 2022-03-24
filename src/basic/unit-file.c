@@ -8,6 +8,7 @@
 #include "fs-util.h"
 #include "macro.h"
 #include "path-lookup.h"
+#include "path-util.h"
 #include "set.h"
 #include "special.h"
 #include "stat-util.h"
@@ -306,15 +307,23 @@ int unit_file_build_name_map(
                         continue;
                 }
 
-                FOREACH_DIRENT_ALL(de, d, log_warning_errno(errno, "Failed to read \"%s\", ignoring: %m", *dir)) {
+                for (;;) {
                         _unused_ _cleanup_free_ char *_filename_free = NULL;
                         _cleanup_free_ char *simplified = NULL;
                         bool symlink_to_dir = false;
                         const char *dst = NULL;
+                        struct dirent *de;
                         char *filename;
 
                         /* We only care about valid units and dirs with certain suffixes, let's ignore the
                          * rest. */
+
+                        r = readdir_ensure_type(d, &de);
+                        if (r <= 0) {
+                                if (r < 0)
+                                        log_warning_errno(r, "Failed to read \"%s\", ignoring: %m", *dir);
+                                break;
+                        }
 
                         if (de->d_type == DT_REG) {
 

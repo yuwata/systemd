@@ -147,11 +147,18 @@ int coredump_vacuum(int exclude_fd, uint64_t keep_free, uint64_t max_use) {
 
                 rewinddir(d);
 
-                FOREACH_DIRENT(de, d, goto fail) {
+                for (;;) {
                         VacuumCandidate *c;
+                        struct dirent *de;
                         struct stat st;
                         uid_t uid;
                         usec_t t;
+
+                        r = readdir_safe(d, &de);
+                        if (r < 0)
+                                goto fail;
+                        if (r == 0)
+                                break;
 
                         r = uid_from_file_name(de->d_name, &uid);
                         if (r < 0)

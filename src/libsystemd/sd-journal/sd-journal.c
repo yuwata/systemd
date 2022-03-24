@@ -1563,21 +1563,28 @@ static int directory_open(sd_journal *j, const char *path, DIR **ret) {
 static int add_directory(sd_journal *j, const char *prefix, const char *dirname);
 
 static void directory_enumerate(sd_journal *j, Directory *m, DIR *d) {
+        int r;
+
         assert(j);
         assert(m);
         assert(d);
 
-        FOREACH_DIRENT_ALL(de, d, goto fail) {
+        for (;;) {
+                struct dirent *de;
+
+                r = readdir_ensure_type(d, &de);
+                if (r <= 0) {
+                        if (r < 0)
+                                log_debug_errno(r, "Failed to enumerate directory %s, ignoring: %m", m->path);
+                        return;
+                }
+
                 if (dirent_is_journal_file(de))
                         (void) add_file_by_name(j, m->path, de->d_name);
 
                 if (m->is_root && dirent_is_journal_subdir(de))
                         (void) add_directory(j, m->path, de->d_name);
         }
-
-        return;
-fail:
-        log_debug_errno(errno, "Failed to enumerate directory %s, ignoring: %m", m->path);
 }
 
 static void directory_watch(sd_journal *j, Directory *m, int fd, uint32_t mask) {

@@ -786,9 +786,16 @@ _public_ int sd_get_uids(uid_t **users) {
                 return -errno;
         }
 
-        FOREACH_DIRENT_ALL(de, d, return -errno) {
+        for (;;) {
+                struct dirent *de;
                 int k;
                 uid_t uid;
+
+                r = readdir_ensure_type(d, &de);
+                if (r < 0)
+                        return r;
+                if (r == 0)
+                        break;
 
                 if (!dirent_is_file(de))
                         continue;

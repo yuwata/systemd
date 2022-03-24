@@ -447,6 +447,7 @@ unlink_this_file:
 
 static int manager_enumerate_records(Manager *m) {
         _cleanup_closedir_ DIR *d = NULL;
+        int r;
 
         assert(m);
 
@@ -455,9 +456,16 @@ static int manager_enumerate_records(Manager *m) {
                 return log_full_errno(errno == ENOENT ? LOG_DEBUG : LOG_ERR, errno,
                                       "Failed to open %s: %m", home_record_dir());
 
-        FOREACH_DIRENT(de, d, return log_error_errno(errno, "Failed to read record directory: %m")) {
+        for (;;) {
                 _cleanup_free_ char *n = NULL;
+                struct dirent *de;
                 const char *e;
+
+                r = readdir_safe(d, &de);
+                if (r < 0)
+                        return log_error_errno(r, "Failed to read record directory: %m");
+                if (r == 0)
+                        return 0;
 
                 if (!dirent_is_file(de))
                         continue;
@@ -475,8 +483,6 @@ static int manager_enumerate_records(Manager *m) {
 
                 (void) manager_add_home_by_record(m, n, dirfd(d), de->d_name);
         }
-
-        return 0;
 }
 
 static int search_quota(uid_t uid, const char *exclude_quota_path) {
@@ -917,6 +923,7 @@ static int manager_assess_image(
 
 int manager_enumerate_images(Manager *m) {
         _cleanup_closedir_ DIR *d = NULL;
+        int r;
 
         assert(m);
 
@@ -928,10 +935,17 @@ int manager_enumerate_images(Manager *m) {
                 return log_full_errno(errno == ENOENT ? LOG_DEBUG : LOG_ERR, errno,
                                       "Failed to open %s: %m", get_home_root());
 
-        FOREACH_DIRENT(de, d, return log_error_errno(errno, "Failed to read %s directory: %m", get_home_root()))
-                (void) manager_assess_image(m, dirfd(d), get_home_root(), de->d_name);
+        for (;;) {
+                struct dirent *de;
 
-        return 0;
+                r = readdir_safe(d, &de);
+                if (r < 0)
+                        return log_error_errno(r, "Failed to read %s directory: %m", get_home_root());
+                if (r == 0)
+                        return 0;
+
+                (void) manager_assess_image(m, dirfd(d), get_home_root(), de->d_name);
+        }
 }
 
 static int manager_connect_bus(Manager *m) {

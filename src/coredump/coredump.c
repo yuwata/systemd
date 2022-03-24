@@ -605,10 +605,17 @@ static int compose_open_fds(pid_t pid, char **open_fds) {
         if (!stream)
                 return -ENOMEM;
 
-        FOREACH_DIRENT(de, proc_fd_dir, return -errno) {
+        for (;;) {
                 _cleanup_fclose_ FILE *fdinfo = NULL;
                 _cleanup_free_ char *fdname = NULL;
                 _cleanup_close_ int fd = -1;
+                struct dirent *de;
+
+                r = readdir_safe(proc_fd_dir, &de);
+                if (r < 0)
+                        return r;
+                if (r == 0)
+                        break;
 
                 r = readlinkat_malloc(dirfd(proc_fd_dir), de->d_name, &fdname);
                 if (r < 0)

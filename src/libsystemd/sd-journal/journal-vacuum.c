@@ -141,14 +141,21 @@ int journal_directory_vacuum(
         if (!d)
                 return -errno;
 
-        FOREACH_DIRENT_ALL(de, d, r = -errno; goto finish) {
+        for (;;) {
                 unsigned long long seqnum = 0, realtime;
                 _cleanup_free_ char *p = NULL;
                 sd_id128_t seqnum_id;
+                struct dirent *de;
                 bool have_seqnum;
                 uint64_t size;
                 struct stat st;
                 size_t q;
+
+                r = readdir_ensure_type(d, &de);
+                if (r < 0)
+                        goto finish;
+                if (r == 0)
+                        break;
 
                 if (fstatat(dirfd(d), de->d_name, &st, AT_SYMLINK_NOFOLLOW) < 0) {
                         log_debug_errno(errno, "Failed to stat file %s while vacuuming, ignoring: %m", de->d_name);

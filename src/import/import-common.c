@@ -253,9 +253,14 @@ int import_mangle_os_tree(const char *path) {
         if (r < 0)
                 return log_error_errno(r, "Unable to rename '%s' to '%s/%s': %m", joined, path, t);
 
-        FOREACH_DIRENT_ALL(de, cd, return log_error_errno(errno, "Failed to iterate through directory '%s': %m", joined)) {
-                if (dot_or_dot_dot(de->d_name))
-                        continue;
+        for (;;) {
+                struct dirent *de;
+
+                r = readdir_no_dot(cd, &de);
+                if (r < 0)
+                        return log_error_errno(r, "Failed to iterate through directory '%s': %m", joined);
+                if (r == 0)
+                        break;
 
                 r = rename_noreplace(dirfd(cd), de->d_name, dirfd(d), de->d_name);
                 if (r < 0)
