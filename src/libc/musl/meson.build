@@ -8,5 +8,6 @@ libc_wrapper_sources += files(
         'crypt.c',
         'printf.c',
         'stdio.c',
+        'string.c',
         'unistd.c',
 )
