@@ -2599,7 +2599,7 @@ static int udev_rule_apply_token_to_event(
                                 else if (r > 0)
                                         log_event_debug(dev, token, "Dropped SYMLINK '%s'", path);
                         } else {
-                                r = device_add_devlink(dev, path);
+                                r = device_add_devlink(dev, path, NULL);
                                 if (r == -ENOMEM)
                                         return log_oom();
                                 if (r < 0)

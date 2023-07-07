@@ -104,9 +104,9 @@ static int node_symlink(sd_device *dev, const char *devnode, const char *slink) 
         return 0;
 }
 
-static int stack_directory_read_one(int dirfd, const char *id, char **devnode, int *priority) {
+static int stack_directory_read_one(int dirfd, const char *id, char **devnode, char **priority) {
         _cleanup_free_ char *buf = NULL;
-        int tmp_prio, r;
+        int r;
 
         assert(dirfd >= 0);
         assert(id);
@@ -137,23 +137,22 @@ static int stack_directory_read_one(int dirfd, const char *id, char **devnode, i
                 if (access(colon + 1, F_OK) < 0)
                         return -ENODEV;
 
-                r = safe_atoi(buf, &tmp_prio);
-                if (r < 0)
-                        return r;
+                if (devnode) {
+                        if (*devnode && strverscmp_improved(buf, *priority) <= 0)
+                                return 0; /* Unchanged */
 
-                if (!devnode)
-                        goto finalize;
+                        r = free_and_strdup(devnode, colon + 1);
+                        if (r < 0)
+                                return r;
+                }
 
-                if (*devnode && tmp_prio <= *priority)
-                        return 0; /* Unchanged */
-
-                r = free_and_strdup(devnode, colon + 1);
+                r = free_and_strdup(priority, buf);
                 if (r < 0)
                         return r;
 
         } else if (r == -EINVAL) { /* Not a symlink ? try the old format */
                 _cleanup_(sd_device_unrefp) sd_device *dev = NULL;
-                const char *val;
+                const char *val, *tmp_prio;
 
                 /* Old format. The devnode and priority must be obtained from uevent and udev database. */
 
@@ -161,37 +160,38 @@ static int stack_directory_read_one(int dirfd, const char *id, char **devnode, i
                 if (r < 0)
                         return r;
 
-                r = device_get_devlink_priority(dev, &tmp_prio);
+                r = device_get_devlink_priority_version(dev, &tmp_prio);
                 if (r < 0)
                         return r;
 
-                if (!devnode)
-                        goto finalize;
+                if (devnode) {
+                        if (*devnode && strverscmp_improved(tmp_prio, *priority) <= 0)
+                                return 0; /* Unchanged */
 
-                if (*devnode && tmp_prio <= *priority)
-                        return 0; /* Unchanged */
+                        r = sd_device_get_devname(dev, &val);
+                        if (r < 0)
+                                return r;
 
-                r = sd_device_get_devname(dev, &val);
-                if (r < 0)
-                        return r;
+                        r = free_and_strdup(devnode, val);
+                        if (r < 0)
+                                return r;
+                }
 
-                r = free_and_strdup(devnode, val);
+                r = free_and_strdup(priority, tmp_prio);
                 if (r < 0)
                         return r;
 
         } else
                 return r == -ENOENT ? -ENODEV : r;
 
-finalize:
-        *priority = tmp_prio;
         return 1; /* Updated */
 }
 
 static int stack_directory_find_prioritized_devnode(sd_device *dev, int dirfd, bool add, char **ret) {
         _cleanup_closedir_ DIR *dir = NULL;
-        _cleanup_free_ char *devnode = NULL;
-        int r, priority;
+        _cleanup_free_ char *devnode = NULL, *priority = NULL;
         const char *id;
+        int r;
 
         assert(dev);
         assert(dirfd >= 0);
@@ -203,9 +203,13 @@ static int stack_directory_find_prioritized_devnode(sd_device *dev, int dirfd, b
         if (add) {
                 const char *n;
 
-                r = device_get_devlink_priority(dev, &priority);
+                r = device_get_devlink_priority_version(dev, &n);
                 if (r < 0)
                         return r;
+
+                priority = strdup(n);
+                if (!priority)
+                        return -ENOMEM;
 
                 r = sd_device_get_devname(dev, &n);
                 if (r < 0)
@@ -252,18 +256,17 @@ static int stack_directory_update(sd_device *dev, int fd, bool add) {
 
         if (add) {
                 _cleanup_free_ char *data = NULL, *buf = NULL;
-                const char *devname;
-                int priority;
+                const char *devname, *priority;
 
                 r = sd_device_get_devname(dev, &devname);
                 if (r < 0)
                         return r;
 
-                r = device_get_devlink_priority(dev, &priority);
+                r = device_get_devlink_priority_version(dev, &priority);
                 if (r < 0)
                         return r;
 
-                if (asprintf(&data, "%i:%s", priority, devname) < 0)
+                if (asprintf(&data, "%s:%s", priority, devname) < 0)
                         return -ENOMEM;
 
                 if (readlinkat_malloc(fd, id, &buf) >= 0 && streq(buf, data))
@@ -392,7 +395,7 @@ static int stack_directory_open(sd_device *dev, const char *slink, int *ret_dirf
         return 0;
 }
 
-static int node_get_current(const char *slink, int dirfd, char **ret_id, int *ret_prio) {
+static int node_get_current(const char *slink, int dirfd, char **ret_id, char **ret_prio) {
         _cleanup_(sd_device_unrefp) sd_device *dev = NULL;
         _cleanup_free_ char *id_dup = NULL;
         const char *id;
@@ -425,9 +428,9 @@ static int node_get_current(const char *slink, int dirfd, char **ret_id, int *re
 }
 
 static int link_update(sd_device *dev, const char *slink, bool add) {
-        _cleanup_free_ char *current_id = NULL, *devnode = NULL;
+        _cleanup_free_ char *current_id = NULL, *devnode = NULL, *current_prio = NULL;
         _cleanup_close_ int dirfd = -EBADF, lockfd = -EBADF;
-        int r, current_prio;
+        int r;
 
         assert(dev);
         assert(slink);
@@ -452,14 +455,14 @@ static int link_update(sd_device *dev, const char *slink, bool add) {
                         return log_device_debug_errno(dev, r, "Failed to get device id: %m");
 
                 if (add) {
-                        int prio;
+                        const char *prio;
 
-                        r = device_get_devlink_priority(dev, &prio);
+                        r = device_get_devlink_priority_version(dev, &prio);
                         if (r < 0)
                                 return log_device_debug_errno(dev, r, "Failed to get devlink priority: %m");
 
                         if (streq(current_id, id)) {
-                                if (current_prio <= prio)
+                                if (strverscmp_improved(current_prio, prio) <= 0)
                                         /* The devlink is ours and already exists, and the new priority is
                                          * equal or higher than the previous. Hence, it is not necessary to
                                          * recreate it. */
@@ -468,7 +471,7 @@ static int link_update(sd_device *dev, const char *slink, bool add) {
                                 /* The devlink priority is downgraded. Another device may have a higher
                                  * priority now. Let's find the device node with the highest priority. */
                         } else {
-                                if (current_prio >= prio)
+                                if (strverscmp_improved(current_prio, prio) >= 0)
                                         /* The devlink with equal or higher priority already exists and is
                                          * owned by another device. Hence, it is not necessary to recreate it. */
                                         return 0;

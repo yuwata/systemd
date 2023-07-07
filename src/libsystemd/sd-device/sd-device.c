@@ -1496,25 +1496,58 @@ int device_add_tag(sd_device *device, const char *tag, bool both) {
         return 0;
 }
 
-int device_add_devlink(sd_device *device, const char *devlink) {
-        char *p;
+static char* priority_free(char *p) {
+        if (p == POINTER_MAX)
+                return NULL;
+
+        return mfree(p);
+}
+
+static bool priority_equal(const char *a, const char *b) {
+        return streq_ptr(a == POINTER_MAX ? NULL : a, b == POINTER_MAX ? NULL : b);
+}
+
+DEFINE_HASH_OPS_FULL(devlink_hash_ops,
+                     char, path_hash_func, path_compare, free,
+                     char, priority_free);
+
+int device_add_devlink(sd_device *device, const char *devlink, const char *priority) {
+        _cleanup_free_ char *key = NULL, *value = NULL, *old_key = NULL;
+        const char *v;
         int r;
 
         assert(device);
         assert(devlink);
 
-        r = mangle_devname(devlink, &p);
+        r = mangle_devname(devlink, &key);
         if (r < 0)
                 return r;
 
-        r = set_ensure_consume(&device->devlinks, &path_hash_ops_free, p);
+        if (priority) {
+                /* The priority and device node will be concatenated with a colon (PRIORITY:DEVNODE),
+                 * and saved in symlink under /run/udev/node. Hence, the priority cannot contain colons. */
+                if (strchr(priority, ':'))
+                        return -EINVAL;
+
+                value = strdup(priority);
+                if (!q)
+                        return -ENOMEM;
+        }
+
+        v = hashmap_get(device->devlink, key);
+        if (v && priority_equal(v, value))
+                return 0; /* already exists */
+
+        priority_free(hashmap_remove2(device->devlinks, key, (void**) &old_key);
+
+        r = hashmap_ensure_put(&device->devlinks, &devlink_hash_ops, key, value ?: POINTER_MAX);
         if (r < 0)
                 return r;
 
         device->devlinks_generation++;
         device->property_devlinks_outdated = true;
 
-        return r; /* return 1 when newly added, 0 when already exists */
+        return 1;
 }
 
 int device_remove_devlink(sd_device *device, const char *devlink) {
@@ -1605,7 +1638,7 @@ static int handle_db_line(sd_device *device, char key, const char *value) {
                 const char *path;
 
                 path = strjoina("/dev/", value);
-                return device_add_devlink(device, path);
+                return device_add_devlink(device, path, NULL);
         }
         case 'E':
                 return device_add_property_internal_from_string(device, value);
