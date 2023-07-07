@@ -72,6 +72,7 @@ void device_set_devlink_priority(sd_device *device, int priority) {
         assert(device);
 
         device->devlink_priority = priority;
+        device->devlink_priority_version = mfree(device->devlink_priority_version);
 }
 
 void device_set_is_initialized(sd_device *device) {
@@ -616,6 +617,35 @@ int device_get_devlink_priority(sd_device *device, int *ret) {
 
         if (ret)
                 *ret = device->devlink_priority;
+
+        return 0;
+}
+
+int device_get_devlink_priority_version(sd_device *device, const char **ret) {
+        int r;
+
+        assert(device);
+
+        if (!device->devlink_priority_version) {
+                char *str;
+                int prio;
+
+                r = device_get_devlink_priority(device, &prio);
+                if (r < 0)
+                        return r;
+
+                if (prio >= 0)
+                        r = asprintf(&str, "%i", prio);
+                else
+                        r = asprintf(&str, "0~%"PRIi64, (int64_t) prio + 1 - INT_MIN);
+                if (r < 0)
+                        return -ENOMEM;
+
+                device->devlink_priority_version = str;
+        }
+
+        if (ret)
+                *ret = device->devlink_priority_version;
 
         return 0;
 }

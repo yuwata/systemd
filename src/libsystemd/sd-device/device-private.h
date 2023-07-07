@@ -24,6 +24,7 @@ int device_get_sysattr_unsigned(sd_device *device, const char *sysattr, unsigned
 int device_get_sysattr_bool(sd_device *device, const char *sysattr);
 int device_get_device_id(sd_device *device, const char **ret);
 int device_get_devlink_priority(sd_device *device, int *ret);
+int device_get_devlink_priority_version(sd_device *device, const char **ret);
 int device_get_devnode_mode(sd_device *device, mode_t *ret);
 int device_get_devnode_uid(sd_device *device, uid_t *ret);
 int device_get_devnode_gid(sd_device *device, gid_t *ret);

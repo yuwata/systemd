@@ -656,4 +656,29 @@ TEST(devname_from_devnum) {
         }
 }
 
+TEST(devlink_priority) {
+        _cleanup_(sd_device_unrefp) sd_device *device = NULL;
+        int prio[] = { INT_MIN, -100, -1, 0, 1, 100, INT_MAX };
+        _cleanup_strv_free_ char **versions = NULL;
+
+        assert_se(sd_device_new_from_syspath(&device, "/sys/class/net/lo") >= 0);
+        device_seal(device);
+
+        for (size_t i = 0; i < ELEMENTSOF(prio); i++) {
+                const char *v;
+                int p;
+
+                device_set_devlink_priority(device, prio[i]);
+                assert_se(device_get_devlink_priority(device, &p) >= 0);
+                assert_se(p == prio[i]);
+                assert_se(device_get_devlink_priority_version(device, &v) >= 0);
+                log_debug("%i -> %s", p, v);
+
+                STRV_FOREACH(u, versions)
+                        assert_se(strverscmp_improved(*u, v) < 0);
+
+                assert_se(strv_extend(&versions, v) >= 0);
+        }
+}
+
 DEFINE_TEST_MAIN(LOG_INFO);

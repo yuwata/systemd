@@ -46,6 +46,7 @@ struct sd_device {
         uint64_t devlinks_generation; /* changes whenever the devlinks are changed */
         uint64_t devlinks_iterator_generation; /* generation when iteration was started */
         int devlink_priority;
+        char *devlink_priority_version;
 
         Hashmap *children;
         Iterator children_iterator;
