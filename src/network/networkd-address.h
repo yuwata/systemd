@@ -132,3 +132,5 @@ CONFIG_PARSER_PROTOTYPE(config_parse_address_scope);
 CONFIG_PARSER_PROTOTYPE(config_parse_address_route_metric);
 CONFIG_PARSER_PROTOTYPE(config_parse_duplicate_address_detection);
 CONFIG_PARSER_PROTOTYPE(config_parse_address_netlabel);
+CONFIG_PARSER_PROTOTYPE(config_parse_address_protocol);
+CONFIG_PARSER_PROTOTYPE(config_parse_address_protocol_defs);

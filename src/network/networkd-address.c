@@ -90,6 +90,71 @@ int address_flags_to_string_alloc(uint32_t flags, int family, char **ret) {
         return 0;
 }
 
+static const char * const address_protocol_table[] = {
+        [IFAPROT_UNSPEC]    = "unspec",
+        [IFAPROT_KERNEL_LO] = "kernel_lo",
+        [IFAPROT_KERNEL_RA] = "kernel_ra",
+        [IFAPROT_KERNEL_LL] = "kernel_ll",
+};
+
+DEFINE_PRIVATE_STRING_TABLE_LOOKUP(address_protocol, int);
+
+static int manager_get_address_protocol_from_string(const Manager *m, const char *s, uint8_t *ret) {
+        unsigned n;
+        uint8_t t;
+        int r;
+
+        assert(m);
+        assert(s);
+        assert(ret);
+
+        r = address_protocol_from_string(s);
+        if (r >= 0) {
+                assert(r <= UINT8_MAX);
+                *ret = (uint8_t) r;
+                return 0;
+        }
+
+        n = PTR_TO_UINT(hashmap_get(m->address_protocol_numbers_by_name, s));
+        if (n != 0) {
+                assert(n <= UINT8_MAX);
+                *ret = (uint8_t) n;
+                return 0;
+        }
+
+        r = safe_atou8(s, &t);
+        if (r < 0)
+                return r;
+
+        *ret = t;
+        return 0;
+}
+
+static int manager_get_address_protocol_to_string(const Manager *m, uint8_t protocol, char **ret) {
+        _cleanup_free_ char *str = NULL;
+        const char *s;
+        int r;
+
+        assert(m);
+        assert(ret);
+
+        s = address_protocol_to_string(protocol);
+        if (!s)
+                s = hashmap_get(m->address_protocol_names_by_number, UINT_TO_PTR(protocol));
+
+        if (s)
+                /* Currently, this is only used in debugging logs. To not confuse any bug
+                 * reports, let's include the table number. */
+                r = asprintf(&str, "%s(%u)", s, protocol);
+        else
+                r = asprintf(&str, "%u", protocol);
+        if (r < 0)
+                return -ENOMEM;
+
+        *ret = TAKE_PTR(str);
+        return 0;
+}
+
 int address_new(Address **ret) {
         _cleanup_(address_freep) Address *address = NULL;
 
@@ -2208,6 +2273,162 @@ int config_parse_address_netlabel(
 
         TAKE_PTR(n);
         return 0;
+}
+
+int config_parse_address_protocol(
+                const char *unit,
+                const char *filename,
+                unsigned line,
+                const char *section,
+                unsigned section_line,
+                const char *lvalue,
+                int ltype,
+                const char *rvalue,
+                void *data,
+                void *userdata) {
+
+        Network *network = ASSERT_PTR(userdata);
+        _cleanup_(address_free_or_set_invalidp) Address *n = NULL;
+        int r;
+
+        assert(filename);
+        assert(lvalue);
+        assert(rvalue);
+        assert(network->manager);
+
+        r = address_new_static(network, filename, section_line, &n);
+        if (r == -ENOMEM)
+                return log_oom();
+        if (r < 0) {
+                log_syntax(unit, LOG_WARNING, filename, line, r,
+                           "Failed to allocate new address, ignoring assignment: %m");
+                return 0;
+        }
+
+        r = manager_get_address_protocol_from_string(manager, rvalue, &n->proto);
+        if (r < 0) {
+                log_syntax(unit, LOG_WARNING, filename, line, r,
+                           "Could not parse %s=, ignoring assignment: %s", lvalue, rvalue);
+                return 0;
+        }
+
+        TAKE_PTR(n);
+        return 0;
+}
+
+int config_parse_address_protocol_defs(
+                const char *unit,
+                const char *filename,
+                unsigned line,
+                const char *section,
+                unsigned section_line,
+                const char *lvalue,
+                int ltype,
+                const char *rvalue,
+                void *data,
+                void *userdata) {
+
+        Manager *manager = ASSERT_PTR(userdata);
+        int r;
+
+        assert(filename);
+        assert(lvalue);
+        assert(rvalue);
+
+        if (isempty(rvalue)) {
+                m->address_protocol_names_by_number = hashmap_free(m->address_protocol_names_by_number);
+                m->address_protocol_numbers_by_name = hashmap_free(m->address_protocol_numbers_by_name);
+                return 0;
+        }
+
+        for (const char *p = rvalue;;) {
+                _cleanup_free_ char *name = NULL;
+                char *num;
+                uint8_t n;
+
+                r = extract_first_word(&p, &name, NULL, 0);
+                if (r == -ENOMEM)
+                        return log_oom();
+                if (r < 0) {
+                        log_syntax(unit, LOG_WARNING, filename, line, r,
+                                   "Invalid %s=, ignoring assignment: %s", rvalue);
+                        return 0;
+                }
+                if (r == 0)
+                        return 0;
+
+                num = strchr(name, ':');
+                if (!num) {
+                        log_syntax(unit, LOG_WARNING, filename, line, 0,
+                                   "Invalid pair of address protocol name and number, ignoring assignment: %s", name);
+                        continue;
+                }
+
+                *num++ = '\0';
+
+                if (isempty(name)) {
+                        log_syntax(unit, LOG_WARNING, filename, line, 0,
+                                   "Address protocol name cannot be empty. Ignoring assignment: %s:%s", name, num);
+                        continue;
+                }
+                if (in_charset(name, DIGITS)) {
+                        log_syntax(unit, LOG_WARNING, filename, line, 0,
+                                   "Address protocol name cannot be numeric. Ignoring assignment: %s:%s", name, num);
+                        continue;
+                }
+                if (address_protocol_from_string(name) >= 0) {
+                        log_syntax(unit, LOG_WARNING, filename, line, 0,
+                                   "Address protocol name %s is already predefined. Ignoring assignment: %s:%s", name, name, num);
+                        continue;
+                }
+
+                r = safe_atou8(num, &n);
+                if (r < 0) {
+                        log_syntax(unit, LOG_WARNING, filename, line, r,
+                                   "Failed to parse address protocol number '%s', ignoring assignment: %s:%s", num, name, num);
+                        continue;
+                }
+                if (address_protocol_to_string(n)) {
+                        log_syntax(unit, LOG_WARNING, filename, line, 0,
+                                   "Invalid address protocol number, ignoring assignment: %s:%s", name, num);
+                        continue;
+                }
+
+                r = hashmap_ensure_put(&m->address_protocol_numbers_by_name, &string_hash_ops_free, name, UINT_TO_PTR(n));
+                if (r == -ENOMEM)
+                        return log_oom();
+                if (r == -EEXIST) {
+                        log_syntax(unit, LOG_WARNING, filename, line, r,
+                                   "Specified pair of address protocol name and number conflicts with others, ignoring assignment: %s:%s", name, num);
+                        continue;
+                }
+                if (r < 0) {
+                        log_syntax(unit, LOG_WARNING, filename, line, r,
+                                   "Failed to store pair of address protocol name and number, ignoring assignment: %s:%s", name, num);
+                        continue;
+                }
+                if (r == 0)
+                        /* The entry is duplicated. It should not be added to address_protocol_names_by_number hashmap. */
+                        continue;
+
+                r = hashmap_ensure_put(&m->address_protocol_names_by_number, NULL, UINT_TO_PTR(n), name);
+                if (r < 0) {
+                        hashmap_remove(m->address_protocol_numbers_by_name, name);
+
+                        if (r == -ENOMEM)
+                                return log_oom();
+                        if (r == -EEXIST)
+                                log_syntax(unit, LOG_WARNING, filename, line, r,
+                                           "Specified pair of address protocol name and number conflicts with others, ignoring assignment: %s:%s", name, num);
+                        else
+                                log_syntax(unit, LOG_WARNING, filename, line, r,
+                                           "Failed to store pair of address protocol name and number, ignoring assignment: %s:%s", name, num);
+                        continue;
+                }
+                assert(r > 0);
+
+                TAKE_PTR(name);
+        }
 }
 
 static void address_section_adjust_broadcast(Address *address) {
