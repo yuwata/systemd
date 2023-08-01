@@ -154,30 +154,35 @@ static int address_new_static(Network *network, const char *filename, unsigned s
 
 static Address *address_detach_impl(Address *address) {
         assert(address);
+        assert(!!address->network + !!address->link <= 1);
 
-        if (!address->link)
+        if (!address->network && !address->link)
                 return NULL;
 
-        set_remove(address->link->addresses, address);
+        if (address->network) {
+                assert(address->section);
+                ordered_hashmap_remove(address->network->addresses_by_section, address->section);
+                address->network = NULL;
+        }
 
-        if (address->family == AF_INET6 &&
-            in6_addr_equal(&address->in_addr.in6, &address->link->ipv6ll_address))
-                memzero(&address->link->ipv6ll_address, sizeof(struct in6_addr));
+        if (address->link) {
+                set_remove(address->link->addresses, address);
 
-        ipv4acd_detach(address->link, address);
+                if (address->family == AF_INET6 &&
+                    in6_addr_equal(&address->in_addr.in6, &address->link->ipv6ll_address))
+                        memzero(&address->link->ipv6ll_address, sizeof(struct in6_addr));
 
-        address->link = NULL;
+                ipv4acd_detach(address->link, address);
+
+                address->link = NULL;
+        }
+
         return address;
 }
 
 static Address *address_free(Address *address) {
         if (!address)
                 return NULL;
-
-        if (address->network) {
-                assert(address->section);
-                ordered_hashmap_remove(address->network->addresses_by_section, address->section);
-        }
 
         address_detach_impl(address);
 
@@ -189,7 +194,7 @@ static Address *address_free(Address *address) {
 
 DEFINE_TRIVIAL_REF_UNREF_FUNC(Address, address, address_free);
 
-static void address_detach(Address *address) {
+void address_detach(Address *address) {
         assert(address);
         address_unref(address_detach_impl(address));
 }
@@ -424,7 +429,7 @@ DEFINE_PRIVATE_HASH_OPS_WITH_KEY_DESTRUCTOR(
         Address,
         address_hash_func,
         address_compare_func,
-        address_unref);
+        address_detach);
 
 static bool address_can_update(const Address *la, const Address *na) {
         assert(la);
