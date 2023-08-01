@@ -91,13 +91,14 @@ int address_flags_to_string_alloc(uint32_t flags, int family, char **ret) {
 }
 
 int address_new(Address **ret) {
-        _cleanup_(address_freep) Address *address = NULL;
+        _cleanup_(address_unrefp) Address *address = NULL;
 
         address = new(Address, 1);
         if (!address)
                 return -ENOMEM;
 
         *address = (Address) {
+                .n_ref = 1,
                 .family = AF_UNSPEC,
                 .scope = RT_SCOPE_UNIVERSE,
                 .lifetime_valid_usec = USEC_INFINITY,
@@ -112,7 +113,7 @@ int address_new(Address **ret) {
 
 static int address_new_static(Network *network, const char *filename, unsigned section_line, Address **ret) {
         _cleanup_(config_section_freep) ConfigSection *n = NULL;
-        _cleanup_(address_freep) Address *address = NULL;
+        _cleanup_(address_unrefp) Address *address = NULL;
         int r;
 
         assert(network);
@@ -151,7 +152,7 @@ static int address_new_static(Network *network, const char *filename, unsigned s
         return 0;
 }
 
-Address *address_free(Address *address) {
+static Address *address_free(Address *address) {
         if (!address)
                 return NULL;
 
@@ -175,6 +176,8 @@ Address *address_free(Address *address) {
         free(address->netlabel);
         return mfree(address);
 }
+
+DEFINE_TRIVIAL_REF_UNREF_FUNC(Address, address, address_free);
 
 static bool address_lifetime_is_valid(const Address *a) {
         assert(a);
@@ -406,7 +409,7 @@ DEFINE_PRIVATE_HASH_OPS_WITH_KEY_DESTRUCTOR(
         Address,
         address_hash_func,
         address_compare_func,
-        address_free);
+        address_unref);
 
 static bool address_can_update(const Address *la, const Address *na) {
         assert(la);
@@ -486,7 +489,7 @@ static bool address_can_update(const Address *la, const Address *na) {
 }
 
 int address_dup(const Address *src, Address **ret) {
-        _cleanup_(address_freep) Address *dest = NULL;
+        _cleanup_(address_unrefp) Address *dest = NULL;
         int r;
 
         assert(src);
@@ -617,7 +620,7 @@ static int address_drop(Address *address) {
 
         address_del_netlabel(address);
 
-        address_free(address);
+        address_unref(address);
 
         link_update_operstate(link, /* also_update_master = */ true);
         link_check_ready(link);
@@ -746,7 +749,7 @@ int link_get_address(Link *link, int family, const union in_addr_union *address,
          * arbitrary prefixlen will be returned. */
 
         if (family == AF_INET6 || prefixlen != 0) {
-                _cleanup_(address_freep) Address *tmp = NULL;
+                _cleanup_(address_unrefp) Address *tmp = NULL;
 
                 /* In this case, we can use address_get(). */
 
@@ -1039,7 +1042,7 @@ int link_drop_ipv6ll_addresses(Link *link) {
                 return r;
 
         for (sd_netlink_message *addr = reply; addr; addr = sd_netlink_message_next(addr)) {
-                _cleanup_(address_freep) Address *a = NULL;
+                _cleanup_(address_unrefp) Address *a = NULL;
                 unsigned char flags, prefixlen;
                 struct in6_addr address;
                 Address *existing;
@@ -1193,7 +1196,7 @@ void link_foreignize_addresses(Link *link) {
 }
 
 static int address_acquire(Link *link, const Address *original, Address **ret) {
-        _cleanup_(address_freep) Address *na = NULL;
+        _cleanup_(address_unrefp) Address *na = NULL;
         union in_addr_union in_addr;
         int r;
 
@@ -1360,7 +1363,7 @@ int link_request_address(
                 address_netlink_handler_t netlink_handler,
                 Request **ret) {
 
-        _cleanup_(address_freep) Address *tmp = NULL;
+        _cleanup_(address_unrefp) Address *tmp = NULL;
         Address *existing = NULL;
         int r;
 
@@ -1405,7 +1408,7 @@ int link_request_address(
         log_address_debug(tmp, "Requesting", link);
         r = link_queue_request_safe(link, REQUEST_TYPE_ADDRESS,
                                     tmp,
-                                    address_free,
+                                    address_unref,
                                     address_hash_func,
                                     address_compare_func,
                                     address_process_request,
@@ -1506,7 +1509,7 @@ void address_cancel_request(Address *address) {
 }
 
 int manager_rtnl_process_address(sd_netlink *rtnl, sd_netlink_message *message, Manager *m) {
-        _cleanup_(address_freep) Address *tmp = NULL;
+        _cleanup_(address_unrefp) Address *tmp = NULL;
         struct ifa_cacheinfo cinfo;
         Link *link;
         uint16_t type;
@@ -1736,7 +1739,7 @@ int config_parse_broadcast(
                 void *userdata) {
 
         Network *network = userdata;
-        _cleanup_(address_free_or_set_invalidp) Address *n = NULL;
+        _cleanup_(address_unref_or_set_invalidp) Address *n = NULL;
         union in_addr_union u;
         int r;
 
@@ -1813,7 +1816,7 @@ int config_parse_address(
                 void *userdata) {
 
         Network *network = userdata;
-        _cleanup_(address_free_or_set_invalidp) Address *n = NULL;
+        _cleanup_(address_unref_or_set_invalidp) Address *n = NULL;
         union in_addr_union buffer;
         unsigned char prefixlen;
         int r, f;
@@ -1894,7 +1897,7 @@ int config_parse_label(
                 void *data,
                 void *userdata) {
 
-        _cleanup_(address_free_or_set_invalidp) Address *n = NULL;
+        _cleanup_(address_unref_or_set_invalidp) Address *n = NULL;
         Network *network = userdata;
         int r;
 
@@ -1946,7 +1949,7 @@ int config_parse_lifetime(
                 void *userdata) {
 
         Network *network = userdata;
-        _cleanup_(address_free_or_set_invalidp) Address *n = NULL;
+        _cleanup_(address_unref_or_set_invalidp) Address *n = NULL;
         usec_t k;
         int r;
 
@@ -1995,7 +1998,7 @@ int config_parse_address_flags(
                 void *userdata) {
 
         Network *network = userdata;
-        _cleanup_(address_free_or_set_invalidp) Address *n = NULL;
+        _cleanup_(address_unref_or_set_invalidp) Address *n = NULL;
         int r;
 
         assert(filename);
@@ -2042,7 +2045,7 @@ int config_parse_address_scope(
                 void *userdata) {
 
         Network *network = userdata;
-        _cleanup_(address_free_or_set_invalidp) Address *n = NULL;
+        _cleanup_(address_unref_or_set_invalidp) Address *n = NULL;
         int r;
 
         assert(filename);
@@ -2086,7 +2089,7 @@ int config_parse_address_route_metric(
                 void *userdata) {
 
         Network *network = userdata;
-        _cleanup_(address_free_or_set_invalidp) Address *n = NULL;
+        _cleanup_(address_unref_or_set_invalidp) Address *n = NULL;
         int r;
 
         assert(filename);
@@ -2128,7 +2131,7 @@ int config_parse_duplicate_address_detection(
                 void *userdata) {
 
         Network *network = userdata;
-        _cleanup_(address_free_or_set_invalidp) Address *n = NULL;
+        _cleanup_(address_unref_or_set_invalidp) Address *n = NULL;
         int r;
 
         assert(filename);
@@ -2182,7 +2185,7 @@ int config_parse_address_netlabel(
                 void *userdata) {
 
         Network *network = userdata;
-        _cleanup_(address_free_or_set_invalidp) Address *n = NULL;
+        _cleanup_(address_unref_or_set_invalidp) Address *n = NULL;
         int r;
 
         assert(filename);
@@ -2324,8 +2327,8 @@ int network_drop_invalid_addresses(Network *network) {
 
                 if (address_section_verify(address) < 0) {
                         /* Drop invalid [Address] sections or Address= settings in [Network].
-                         * Note that address_free() will drop the address from addresses_by_section. */
-                        address_free(address);
+                         * Note that address_unref() will drop the address from addresses_by_section. */
+                        address_unref(address);
                         continue;
                 }
 
@@ -2338,8 +2341,8 @@ int network_drop_invalid_addresses(Network *network) {
                                     IN_ADDR_PREFIX_TO_STRING(address->family, &address->in_addr, address->prefixlen),
                                     address->section->line,
                                     dup->section->line, dup->section->line);
-                        /* address_free() will drop the address from addresses_by_section. */
-                        address_free(dup);
+                        /* address_unref() will drop the address from addresses_by_section. */
+                        address_unref(dup);
                 }
 
                 /* Use address_hash_ops, instead of address_hash_ops_free. Otherwise, the Address objects

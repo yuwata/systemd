@@ -31,6 +31,8 @@ struct Address {
         NetworkConfigState state;
         union in_addr_union provider; /* DHCP server or router address */
 
+        unsigned n_ref;
+
         int family;
         unsigned char prefixlen;
         unsigned char scope;
@@ -71,7 +73,8 @@ const char* format_lifetime(char *buf, size_t l, usec_t lifetime_usec) _warn_unu
 int address_flags_to_string_alloc(uint32_t flags, int family, char **ret);
 
 int address_new(Address **ret);
-Address* address_free(Address *address);
+Address* address_ref(Address *address);
+Address* address_unref(Address *address);
 int address_get(Link *link, const Address *in, Address **ret);
 int address_get_harder(Link *link, const Address *in, Address **ret);
 int address_configure_handler_internal(sd_netlink *rtnl, sd_netlink_message *m, Link *link, const char *error_msg);
@@ -86,7 +89,7 @@ static inline void address_set_broadcast(Address *a, Link *link) {
         assert_se(address_get_broadcast(a, link, &a->broadcast) >= 0);
 }
 
-DEFINE_SECTION_CLEANUP_FUNCTIONS(Address, address_free);
+DEFINE_SECTION_CLEANUP_FUNCTIONS(Address, address_unref);
 
 int link_drop_managed_addresses(Link *link);
 int link_drop_foreign_addresses(Link *link);

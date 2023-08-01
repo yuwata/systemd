@@ -85,7 +85,7 @@ void network_adjust_dhcp_server(Network *network) {
 }
 
 int link_request_dhcp_server_address(Link *link) {
-        _cleanup_(address_freep) Address *address = NULL;
+        _cleanup_(address_unrefp) Address *address = NULL;
         Address *existing;
         int r;
 
