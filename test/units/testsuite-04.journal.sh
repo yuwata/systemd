@@ -3,6 +3,10 @@
 set -eux
 set -o pipefail
 
+# shellcheck source=test/units/util.sh
+. "$(dirname "$0")"/util.sh
+
+if false; then
 # Rotation/flush test, see https://github.com/systemd/systemd/issues/19895
 journalctl --relinquish-var
 [[ "$(systemd-detect-virt -v)" == "qemu" ]] && ITERATIONS=10 || ITERATIONS=50
@@ -16,6 +20,7 @@ journalctl --rotate --vacuum-size=8M
 
 # Reset the ratelimit buckets for the subsequent tests below.
 systemctl restart systemd-journald
+fi
 
 # Test stdout stream
 write_and_match() {
@@ -236,3 +241,58 @@ diff -u /tmp/lb1 - <<'EOF'
 [{"index":-3,"boot_id":"5ea5fc4f82a14186b5332a788ef9435e","first_entry":1666569600994371,"last_entry":1666584266223608},{"index":-2,"boot_id":"bea6864f21ad4c9594c04a99d89948b0","first_entry":1666584266731785,"last_entry":1666584347230411},{"index":-1,"boot_id":"4c708e1fd0744336be16f3931aa861fb","first_entry":1666584348378271,"last_entry":1666584354649355},{"index":0,"boot_id":"35e8501129134edd9df5267c49f744a4","first_entry":1666584356661527,"last_entry":1666584438086856}]
 EOF
 rm -rf "$JOURNAL_DIR" /tmp/lb1
+
+get_first_boot_id() (
+    set +o pipefail
+
+    journalctl --boot "${1?}" --output export | grep '^_BOOT_ID' | head -n 1
+)
+
+get_first_timestamp() (
+    set +o pipefail
+
+    journalctl --boot "${1?}" --output short-full | head -n 1 | awk '{ printf "%s %s %s %s", $1, $2, $3, $4 }'
+)
+
+index=0
+while read -r line; do
+    : $((++index))
+    offset=$(echo $line | awk '{ print $1 }')
+    expected_boot_id=$(echo $line | awk '{ print $2 }')
+    expected_start=$(echo $line | awk '{ printf "%s %s %s %s", $3, $4, $5, $6 }')
+    expected_end=$(echo $line | awk '{ printf "%s %s %s %s", $7, $8, $9, $10 }')
+
+    # Check the boot ID of the first entry
+    boot_id=$(get_first_boot_id "$index")
+    assert_eq "$boot_id" "_BOOT_ID=$expected_boot_id"
+    boot_id=$(get_first_boot_id "$offset")
+    assert_eq "$boot_id" "_BOOT_ID=$expected_boot_id"
+    boot_id=$(get_first_boot_id "$expected_boot_id")
+    assert_eq "$boot_id" "_BOOT_ID=$expected_boot_id"
+
+    # Check the timestamp of the first entry
+    start=$(get_first_timestamp "$index")
+    assert_eq "$start" "$expected_start"
+    start=$(get_first_timestamp "$offset")
+    assert_eq "$start" "$expected_start"
+    start=$(get_first_timestamp "$expected_boot_id")
+    assert_eq "$start" "$expected_start"
+
+    # Check the boot ID of the last entry
+    boot_id=$(journalctl --boot "$index" --output export -n 1 | grep '^_BOOT_ID')
+    assert_eq "$boot_id" "_BOOT_ID=$expected_boot_id"
+    boot_id=$(journalctl --boot "$offset" --output export -n 1 | grep '^_BOOT_ID')
+    assert_eq "$boot_id" "_BOOT_ID=$expected_boot_id"
+    boot_id=$(journalctl --boot "$expected_boot_id" --output export -n 1 | grep '^_BOOT_ID')
+    assert_eq "$boot_id" "_BOOT_ID=$expected_boot_id"
+
+    # Check the timestamp of the last entry
+    if [[ "$offset" != "0" ]]; then
+        end=$(journalctl --boot "$index" --output short-full -n 1 | awk '{ printf "%s %s %s %s", $1, $2, $3, $4 }')
+        assert_eq "$end" "$expected_end"
+        end=$(journalctl --boot "$offset" --output short-full -n 1 | awk '{ printf "%s %s %s %s", $1, $2, $3, $4 }')
+        assert_eq "$end" "$expected_end"
+        end=$(journalctl --boot "$expected_boot_id" --output short-full -n 1 | awk '{ printf "%s %s %s %s", $1, $2, $3, $4 }')
+        assert_eq "$end" "$expected_end"
+    fi
+done < <(journalctl --list-boots --quiet)

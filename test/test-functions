@@ -1734,7 +1734,7 @@ save_journal() {
             "$JOURNALCTL" --no-pager -o short-monotonic --no-hostname --priority="${TEST_SHOW_JOURNAL}" -D "$j"
         fi
 
-        rm -r "$j"
+        #rm -r "$j"
     done
 
     if ! get_bool "$save"; then
