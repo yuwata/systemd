@@ -1,6 +1,8 @@
 /* SPDX-License-Identifier: LGPL-2.1-or-later */
 
 #include "dhcp-server-lease-internal.h"
+#include "errno-util.h"
+#include "varlink.h"
 
 static sd_dhcp_server_lease* dhcp_server_lease_free(sd_dhcp_server_lease *lease) {
         if (!lease)
@@ -278,4 +280,174 @@ int dhcp_server_static_leases_append_json(sd_dhcp_server *server, JsonVariant **
         }
 
         return json_variant_set_field_non_null(v, "StaticLeases", array);
+}
+
+int dhcp_server_save_leases(sd_dhcp_server *server) {
+        _cleanup_(json_variant_unrefp) JsonVariant *v = NULL;
+        _cleanup_(varlink_unrefp) Varlink *vl = NULL;
+        sd_id128_t boot_id;
+        int r;
+
+        assert(server);
+
+        if (!server->lease_file)
+                return 0;
+
+        /* TODO: Make the operation asynchronous. */
+
+        r = varlink_connect_address(&vl, "/run/systemd/netif/io.systemd.NetworkControl");
+        if (r < 0)
+                return r;
+
+        if (hashmap_isempty(server->bound_leases_by_client_id))
+                return varlink_callb_and_log(
+                                vl, "io.systemd.NetworkControl.SavePersistentFile", /* ret_reply = */ NULL,
+                                JSON_BUILD_OBJECT(JSON_BUILD_PAIR_STRING("Path", server->lease_file),
+                                                  JSON_BUILD_PAIR_EMPTY_OBJECT("Contents")));
+
+        r = sd_id128_get_boot(&boot_id);
+        if (r < 0)
+                return r;
+
+        r = json_build(&v, JSON_BUILD_OBJECT(JSON_BUILD_PAIR_ID128("BootID", boot_id)));
+        if (r < 0)
+                return r;
+
+        r = dhcp_server_bound_leases_append_json(server, &v);
+        if (r < 0)
+                return r;
+
+        return varlink_callb_and_log(
+                        vl, "io.systemd.NetworkControl.SavePersistentFile", /* ret_reply = */ NULL,
+                        JSON_BUILD_OBJECT(JSON_BUILD_PAIR_STRING("Path", server->lease_file),
+                                          JSON_BUILD_PAIR_OBJECT("Contents", v)));
+}
+
+static int json_dispatch_dhcp_lease(sd_dhcp_server *server, JsonVariant *v, bool use_boottime) {
+        static const JsonDispatch dispatch_table_boottime[] = {
+                { "ClientId",               JSON_VARIANT_ARRAY,         json_dispatch_client_id, offsetof(sd_dhcp_server_lease, client_id),  JSON_MANDATORY },
+                { "Address",                JSON_VARIANT_ARRAY,         json_dispatch_in_addr,   offsetof(sd_dhcp_server_lease, address),    JSON_MANDATORY },
+                { "Hostname",               JSON_VARIANT_STRING,        json_dispatch_string,    offsetof(sd_dhcp_server_lease, hostname),   0              },
+                { "ExpirationUSec",         _JSON_VARIANT_TYPE_INVALID, json_dispatch_uint64,    offsetof(sd_dhcp_server_lease, expiration), JSON_MANDATORY },
+                {}
+        }, dispatch_table_realtime[] = {
+                { "ClientId",               JSON_VARIANT_ARRAY,         json_dispatch_client_id, offsetof(sd_dhcp_server_lease, client_id),  JSON_MANDATORY },
+                { "Address",                JSON_VARIANT_ARRAY,         json_dispatch_in_addr,   offsetof(sd_dhcp_server_lease, address),    JSON_MANDATORY },
+                { "Hostname",               JSON_VARIANT_STRING,        json_dispatch_string,    offsetof(sd_dhcp_server_lease, hostname),   0              },
+                { "ExpirationRealtimeUSec", _JSON_VARIANT_TYPE_INVALID, json_dispatch_uint64,    offsetof(sd_dhcp_server_lease, expiration), JSON_MANDATORY },
+                {}
+        };
+
+        _cleanup_(sd_dhcp_server_lease_unrefp) sd_dhcp_server_lease *lease = NULL;
+        usec_t now_b;
+        int r;
+
+        assert(server);
+        assert(v);
+
+        lease = new(sd_dhcp_server_lease, 1);
+        if (!lease)
+                return -ENOMEM;
+
+        *lease = (sd_dhcp_server_lease) {
+                .n_ref = 1,
+        };
+
+        r = json_dispatch(v, use_boottime ? dispatch_table_boottime : dispatch_table_realtime, JSON_ALLOW_EXTENSIONS, lease);
+        if (r < 0)
+                return r;
+
+        r = sd_event_now(server->event, CLOCK_BOOTTIME, &now_b);
+        if (r < 0)
+                return r;
+
+        if (use_boottime) {
+                if (lease->expiration < now_b)
+                        return 0; /* already expired */
+        } else {
+                usec_t now_r;
+
+                r = sd_event_now(server->event, CLOCK_REALTIME, &now_r);
+                if (r < 0)
+                        return r;
+
+                if (lease->expiration < now_r)
+                        return 0;
+
+                lease->expiration = map_clock_usec_internal(lease->expiration, now_r, now_b);
+        }
+
+        r = dhcp_server_put_lease(server, lease, /* is_static = */ false);
+        if (r == -EEXIST)
+                return 0;
+        if (r < 0)
+                return r;
+
+        TAKE_PTR(lease);
+        return 0;
+}
+
+typedef struct SavedInfo {
+        sd_id128_t boot_id;
+        JsonVariant *leases;
+} SavedInfo;
+
+static int dhcp_server_dispatch_leases(sd_dhcp_server *server, JsonVariant *v) {
+        static const JsonDispatch dispatch_table[] = {
+                { "BootID", JSON_VARIANT_STRING, json_dispatch_id128,         offsetof(SavedInfo, boot_id), JSON_MANDATORY },
+                { "Leases", JSON_VARIANT_ARRAY,  json_dispatch_variant_noref, offsetof(SavedInfo, leases),  JSON_MANDATORY },
+                {}
+        };
+
+        SavedInfo info = {};
+        sd_id128_t boot_id;
+        int r;
+
+        r = json_dispatch(v, dispatch_table, JSON_ALLOW_EXTENSIONS, &info);
+        if (r < 0)
+                return r;
+
+        r = sd_id128_get_boot(&boot_id);
+        if (r < 0)
+                return r;
+
+        JsonVariant *i;
+        JSON_VARIANT_ARRAY_FOREACH(i, info.leases)
+                RET_GATHER(r, json_dispatch_dhcp_lease(server, i, /* use_boottime = */ sd_id128_equal(info.boot_id, boot_id)));
+
+        return r;
+}
+
+int dhcp_server_load_leases(sd_dhcp_server *server) {
+        _cleanup_(json_variant_unrefp) JsonVariant *v = NULL;
+        size_t n, m;
+        int r;
+
+        assert(server);
+        assert(server->event);
+
+        if (!server->lease_file)
+                return 0;
+
+        r = json_parse_file(
+                        /* f = */ NULL,
+                        server->lease_file,
+                        /* flags = */ 0,
+                        &v,
+                        /* ret_line = */ NULL,
+                        /* ret_column = */ NULL);
+        if (r == -ENOENT)
+                return 0;
+        if (r < 0)
+                return r;
+
+        n = hashmap_size(server->bound_leases_by_client_id);
+
+        r = dhcp_server_dispatch_leases(server, v);
+
+        m = hashmap_size(server->bound_leases_by_client_id);
+        assert(m >= n);
+        log_dhcp_server(server, "Loaded %zu lease(s) from %s.", m - n, server->lease_file);
+
+        return r;
 }
