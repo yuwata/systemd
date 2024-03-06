@@ -114,7 +114,8 @@ systemd_networkd_wait_online_sources = files(
 
 networkctl_sources = files(
         'networkctl.c',
-        'networkctl-config-file.c'
+        'networkctl-config-file.c',
+        'networkctl-varlink.c',
 )
 
 network_generator_sources = files(

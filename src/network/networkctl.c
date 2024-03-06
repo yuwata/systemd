@@ -49,6 +49,7 @@
 #include "network-util.h"
 #include "networkctl.h"
 #include "networkctl-config-file.h"
+#include "networkctl-varlink.h"
 #include "pager.h"
 #include "parse-argument.h"
 #include "parse-util.h"
@@ -3149,6 +3150,10 @@ static int run(int argc, char* argv[]) {
 
         r = parse_argv(argc, argv);
         if (r <= 0)
+                return r;
+
+        r = networkctl_varlink();
+        if (r != 0)
                 return r;
 
         return networkctl_main(argc, argv);

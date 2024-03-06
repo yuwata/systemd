@@ -179,6 +179,7 @@ shared_sources = files(
         'varlink-io.systemd.Journal.c',
         'varlink-io.systemd.ManagedOOM.c',
         'varlink-io.systemd.Network.c',
+        'varlink-io.systemd.NetworkControl.c',
         'varlink-io.systemd.PCRExtend.c',
         'varlink-io.systemd.PCRLock.c',
         'varlink-io.systemd.Resolve.c',

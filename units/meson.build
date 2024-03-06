@@ -429,6 +429,14 @@ units = [
         },
         { 'file' : 'systemd-network-generator.service.in' },
         {
+          'file' : 'systemd-networkctl.socket',
+          'conditions' : ['ENABLE_NETWORKD'],
+        },
+        {
+          'file' : 'systemd-networkctl@.service',
+          'conditions' : ['ENABLE_NETWORKD'],
+        },
+        {
           'file' : 'systemd-networkd-persistent-storage.service',
           'conditions' : ['ENABLE_NETWORKD'],
         },

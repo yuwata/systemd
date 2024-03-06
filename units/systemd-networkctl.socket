@@ -1,0 +1,25 @@
+#  SPDX-License-Identifier: LGPL-2.1-or-later
+#
+#  This file is part of systemd.
+#
+#  systemd is free software; you can redistribute it and/or modify it
+#  under the terms of the GNU Lesser General Public License as published by
+#  the Free Software Foundation; either version 2.1 of the License, or
+#  (at your option) any later version.
+
+[Unit]
+Description=Network Control (Varlink)
+Documentation=man:networkctl(1)
+DefaultDependencies=no
+After=systemd-remount-fs.service
+Before=sockets.target
+Conflicts=shutdown.target
+RequiresMountsFor=/var/lib/systemd/network
+
+[Socket]
+ListenStream=/run/systemd/netif/io.systemd.NetworkControl
+FileDescriptorName=varlink
+SocketMode=0600
+Accept=yes
+User=systemd-network
+RuntimeDirectory=netif
