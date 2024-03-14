@@ -76,7 +76,7 @@ jobs:
 
     steps:
     - uses: actions/checkout@9bb56186c3b09b4f86b1c65136769dd318469633
-    - uses: systemd/mkosi@1445b389750af22756c0fde6facc1f2f343340b4
+    - uses: systemd/mkosi@bd645c7b867a35a2b2d083657c411b3c19fa0383
 
     - name: Free disk space
       run: |
