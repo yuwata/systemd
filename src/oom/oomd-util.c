@@ -145,7 +145,8 @@ bool oomd_swap_free_below(const OomdSystemContext *ctx, int threshold_permyriad)
         return (ctx->swap_total - ctx->swap_used) < swap_threshold;
 }
 
-int oomd_fetch_cgroup_oom_preference(OomdCGroupContext *ctx, const char *prefix) {
+int oomd_cgroup_context_fetch_preference(OomdCGroupContext *ctx, const char *prefix) {
+        ManagedOOMPreference preference = MANAGED_OOM_PREFERENCE_NONE;
         uid_t uid;
         int r;
 
@@ -181,15 +182,18 @@ int oomd_fetch_cgroup_oom_preference(OomdCGroupContext *ctx, const char *prefix)
                 return log_oom_debug();
         if (r < 0 && !ERRNO_IS_XATTR_ABSENT(r))
                 log_debug_errno(r, "Failed to get xattr user.oomd_avoid, ignoring: %m");
-        ctx->preference = r > 0 ? MANAGED_OOM_PREFERENCE_AVOID : ctx->preference;
+        if (r > 0)
+                preference = MANAGED_OOM_PREFERENCE_AVOID;
 
         r = cg_get_xattr_bool(ctx->path, "user.oomd_omit");
         if (r == -ENOMEM)
                 return log_oom_debug();
         if (r < 0 && !ERRNO_IS_XATTR_ABSENT(r))
                 log_debug_errno(r, "Failed to get xattr user.oomd_omit, ignoring: %m");
-        ctx->preference = r > 0 ? MANAGED_OOM_PREFERENCE_OMIT : ctx->preference;
+        if (r > 0)
+                preference = MANAGED_OOM_PREFERENCE_OMIT;
 
+        ctx->preference = preference;
         return 0;
 }
 
@@ -212,7 +216,7 @@ int oomd_sort_cgroup_contexts(Hashmap *h, oomd_compare_t compare_func, const cha
                 if (item->path && prefix && !path_startswith(item->path, prefix))
                         continue;
 
-                r = oomd_fetch_cgroup_oom_preference(item, prefix);
+                r = oomd_cgroup_context_fetch_preference(item, prefix);
                 if (r == -ENOMEM)
                         return r;
 

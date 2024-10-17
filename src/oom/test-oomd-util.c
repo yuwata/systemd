@@ -418,7 +418,7 @@ static void test_oomd_sort_cgroups(void) {
         sorted_cgroups = mfree(sorted_cgroups);
 }
 
-static void test_oomd_fetch_cgroup_oom_preference(void) {
+static void test_oomd_cgroup_context_fetch_preference(void) {
         _cleanup_(oomd_cgroup_context_freep) OomdCGroupContext *ctx = NULL;
         _cleanup_free_ char *cgroup = NULL;
         ManagedOOMPreference root_pref;
@@ -450,15 +450,15 @@ static void test_oomd_fetch_cgroup_oom_preference(void) {
         test_xattrs = !ERRNO_IS_PRIVILEGE(r) && !ERRNO_IS_NOT_SUPPORTED(r);
 
         if (test_xattrs) {
-                assert_se(oomd_fetch_cgroup_oom_preference(ctx, NULL) == 0);
+                ASSERT_OK(oomd_cgroup_context_fetch_preference(ctx, NULL));
                 assert_se(cg_set_xattr(cgroup, "user.oomd_omit", "1", 1, 0) >= 0);
                 assert_se(cg_set_xattr(cgroup, "user.oomd_avoid", "1", 1, 0) >= 0);
 
                 /* omit takes precedence over avoid when both are set to true */
-                assert_se(oomd_fetch_cgroup_oom_preference(ctx, NULL) == 0);
+                ASSERT_OK(oomd_cgroup_context_fetch_preference(ctx, NULL));
                 assert_se(ctx->preference == MANAGED_OOM_PREFERENCE_OMIT);
         } else {
-                assert_se(oomd_fetch_cgroup_oom_preference(ctx, NULL) < 0);
+                ASSERT_FAIL(oomd_cgroup_context_fetch_preference(ctx, NULL));
                 assert_se(ctx->preference == MANAGED_OOM_PREFERENCE_NONE);
         }
         ctx = oomd_cgroup_context_free(ctx);
@@ -469,7 +469,7 @@ static void test_oomd_fetch_cgroup_oom_preference(void) {
                 assert_se(cg_set_xattr(cgroup, "user.oomd_avoid", "1", 1, 0) >= 0);
                 ASSERT_OK(oomd_cgroup_context_new(cgroup, &ctx));
                 ASSERT_OK(oomd_cgroup_context_fetch_usage(ctx));
-                assert_se(oomd_fetch_cgroup_oom_preference(ctx, NULL) == 0);
+                ASSERT_OK(oomd_cgroup_context_fetch_preference(ctx, NULL));
                 assert_se(ctx->preference == MANAGED_OOM_PREFERENCE_AVOID);
                 ctx = oomd_cgroup_context_free(ctx);
         }
@@ -483,10 +483,10 @@ static void test_oomd_fetch_cgroup_oom_preference(void) {
         root_pref = root_xattrs > 0 ? MANAGED_OOM_PREFERENCE_OMIT : MANAGED_OOM_PREFERENCE_NONE;
         root_xattrs = cg_get_xattr_bool("", "user.oomd_avoid");
         root_pref = root_xattrs > 0 ? MANAGED_OOM_PREFERENCE_AVOID : MANAGED_OOM_PREFERENCE_NONE;
-        assert_se(oomd_fetch_cgroup_oom_preference(ctx, NULL) == 0);
+        ASSERT_OK(oomd_cgroup_context_fetch_preference(ctx, NULL));
         assert_se(ctx->preference == root_pref);
 
-        assert_se(oomd_fetch_cgroup_oom_preference(ctx, "/herp.slice/derp.scope") == -EINVAL);
+        ASSERT_ERROR(oomd_cgroup_context_fetch_preference(ctx, "/herp.slice/derp.scope"), EINVAL);
 
         /* Assert that avoid/omit are not set if the cgroup and prefix are not
          * owned by the same user. */
@@ -496,10 +496,10 @@ static void test_oomd_fetch_cgroup_oom_preference(void) {
                 ASSERT_OK(oomd_cgroup_context_new(cgroup, &ctx));
                 ASSERT_OK(oomd_cgroup_context_fetch_usage(ctx));
 
-                assert_se(oomd_fetch_cgroup_oom_preference(ctx, NULL) == 0);
+                ASSERT_OK(oomd_cgroup_context_fetch_preference(ctx, NULL));
                 assert_se(ctx->preference == MANAGED_OOM_PREFERENCE_NONE);
 
-                assert_se(oomd_fetch_cgroup_oom_preference(ctx, ctx->path) == 0);
+                ASSERT_OK(oomd_cgroup_context_fetch_preference(ctx, ctx->path));
                 assert_se(ctx->preference == MANAGED_OOM_PREFERENCE_AVOID);
         }
 }
@@ -523,7 +523,7 @@ int main(void) {
 
         test_oomd_cgroup_kill();
         test_oomd_cgroup_context_acquire_and_insert();
-        test_oomd_fetch_cgroup_oom_preference();
+        test_oomd_cgroup_context_fetch_preference();
 
         return 0;
 }
