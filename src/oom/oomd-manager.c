@@ -60,8 +60,6 @@ static int process_managed_oom_message(Manager *m, uid_t uid, sd_json_variant *p
                 _cleanup_(managed_oom_message_destroy) ManagedOOMMessage message = {
                         .duration = USEC_INFINITY,
                 };
-                OomdCGroupContext *ctx;
-                Hashmap *monitor_hm;
                 loadavg_t limit;
                 usec_t duration;
 
@@ -91,11 +89,12 @@ static int process_managed_oom_message(Manager *m, uid_t uid, sd_json_variant *p
                                                        "(" UID_FMT " != " UID_FMT ")", uid, cg_uid);
                 }
 
-                monitor_hm = streq(message.property, "ManagedOOMSwap") ?
-                                m->monitored_swap_cgroup_contexts : m->monitored_mem_pressure_cgroup_contexts;
+                Hashmap **monitor_hm = streq(message.property, "ManagedOOMSwap") ?
+                                &m->monitored_swap_cgroup_contexts :
+                                &m->monitored_mem_pressure_cgroup_contexts;
 
                 if (message.mode == MANAGED_OOM_AUTO) {
-                        (void) oomd_cgroup_context_free(hashmap_remove(monitor_hm, empty_to_root(message.path)));
+                        (void) oomd_cgroup_context_free(hashmap_remove(*monitor_hm, empty_to_root(message.path)));
                         continue;
                 }
 
@@ -114,19 +113,19 @@ static int process_managed_oom_message(Manager *m, uid_t uid, sd_json_variant *p
                 else
                         duration = m->default_mem_pressure_duration_usec;
 
-                r = oomd_insert_cgroup_context(NULL, monitor_hm, message.path);
+                OomdCGroupContext *ctx;
+                r = oomd_cgroup_context_update_usage(monitor_hm, message.path, &ctx);
                 if (r == -ENOMEM)
                         return r;
-                if (r < 0 && r != -EEXIST)
-                        log_debug_errno(r, "Failed to insert message, ignoring: %m");
+                if (r < 0) {
+                        log_debug_errno(r, "Failed to update cgroup context for %s, ignoring: %m", message.path);
+                        continue;
+                }
 
                 /* Always update the limit in case it was changed. For non-memory pressure detection the value is
                  * ignored so always updating it here is not a problem. */
-                ctx = hashmap_get(monitor_hm, empty_to_root(message.path));
-                if (ctx) {
-                        ctx->mem_pressure_limit = limit;
-                        ctx->mem_pressure_duration_usec = duration;
-                }
+                ctx->mem_pressure_limit = limit;
+                ctx->mem_pressure_duration_usec = duration;
         }
 
         /* Toggle wake-ups for "ManagedOOMSwap" if entries are present. */

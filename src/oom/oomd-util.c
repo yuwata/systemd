@@ -617,6 +617,44 @@ void oomd_update_cgroup_contexts_between_hashmaps(Hashmap *old_h, Hashmap *curr_
         }
 }
 
+int oomd_cgroup_context_update_usage(Hashmap **contexts, const char *path, OomdCGroupContext **ret) {
+        OomdCGroupContext *ctx;
+        int r;
+
+        assert(contexts);
+
+        ctx = hashmap_get(*contexts, empty_to_root(path));
+        if (!ctx) {
+                _cleanup_(oomd_cgroup_context_freep) OomdCGroupContext *new_ctx = NULL;
+
+                r = oomd_cgroup_context_new(path, &new_ctx);
+                if (r < 0)
+                        return r;
+
+                r = hashmap_ensure_put(contexts, &oomd_cgroup_ctx_hash_ops, new_ctx->path, new_ctx);
+                if (r < 0)
+                        return r;
+
+                ctx = TAKE_PTR(new_ctx);
+        }
+
+        uint64_t last_pgscan = ctx->pgscan;
+        r = oomd_cgroup_context_fetch_usage(ctx);
+        if (r < 0) {
+                oomd_cgroup_context_free(hashmap_remove(*contexts, ctx->path));
+                return r;
+        }
+
+        ctx->last_pgscan = last_pgscan;
+        if (oomd_pgscan_rate(ctx) > 0)
+                ctx->last_mem_reclaim_usec = now(CLOCK_MONOTONIC);
+
+        if (ret)
+                *ret = ctx;
+
+        return 0;
+}
+
 void oomd_dump_swap_cgroup_context(const OomdCGroupContext *ctx, FILE *f, const char *prefix) {
         assert(ctx);
         assert(f);
