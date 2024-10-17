@@ -20,24 +20,25 @@ typedef int (oomd_compare_t)(OomdCGroupContext * const *, OomdCGroupContext * co
 struct OomdCGroupContext {
         char *path;
 
+        /* Parsed from cgroup. */
         ResourcePressure memory_pressure;
-
-        uint64_t current_memory_usage;
-
+        uint64_t memory_usage;
         uint64_t memory_min;
         uint64_t memory_low;
         uint64_t swap_usage;
-
-        uint64_t last_pgscan;
         uint64_t pgscan;
 
+        uint64_t last_pgscan;         /* previous pgscan */
+        usec_t last_mem_reclaim_usec; /* timestamp when pgscan (thus the above memory profile) is updated last */
+
+        /* Parsed from cgroup xattr, configured through ManagedOOMPreference= per-unit setting. */
         ManagedOOMPreference preference;
 
         /* These are only used for acting on high memory pressure. */
-        loadavg_t mem_pressure_limit;
-        usec_t mem_pressure_limit_hit_start;
-        usec_t last_had_mem_reclaim;
-        usec_t mem_pressure_duration_usec;
+        loadavg_t mem_pressure_limit;       /* threshold of memory pressure (avg10), passed through varlink */
+        usec_t mem_pressure_limit_hit_usec; /* timestamp when the limit first hit */
+        usec_t mem_pressure_duration_usec;  /* wait for the duration after the limit hit before acting on the context,
+                                             * passed through varlink */
 };
 
 struct OomdSystemContext {
@@ -55,7 +56,7 @@ DEFINE_TRIVIAL_CLEANUP_FUNC(OomdCGroupContext*, oomd_cgroup_context_free);
 
 /* Scans all the OomdCGroupContexts in `h` and returns 1 and a set of pointers to those OomdCGroupContexts in `ret`
  * if any of them have exceeded their supplied memory pressure limits for the `ctx->mem_pressure_duration_usec` length of time.
- * `mem_pressure_limit_hit_start` is updated accordingly for the first time the limit is exceeded, and when it returns
+ * `mem_pressure_limit_hit_usec` is updated accordingly for the first time the limit is exceeded, and when it returns
  * below the limit.
  * Returns 0 and sets `ret` to an empty set if no entries exceeded limits for `ctx->mem_pressure_duration_usec`.
  * Returns -ENOMEM for allocation errors. */
@@ -89,7 +90,7 @@ static inline int compare_pgscan_rate_and_memory_usage(OomdCGroupContext * const
         if (r != 0)
                 return r;
 
-        return CMP((*c2)->current_memory_usage, (*c1)->current_memory_usage);
+        return CMP((*c2)->memory_usage, (*c1)->memory_usage);
 }
 
 static inline int compare_swap_usage(OomdCGroupContext * const *c1, OomdCGroupContext * const *c2) {

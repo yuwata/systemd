@@ -86,17 +86,17 @@ int oomd_pressure_above(Hashmap *h, Set **ret) {
                 if (ctx->memory_pressure.avg10 > ctx->mem_pressure_limit) {
                         usec_t diff;
 
-                        if (ctx->mem_pressure_limit_hit_start == 0)
-                                ctx->mem_pressure_limit_hit_start = now(CLOCK_MONOTONIC);
+                        if (ctx->mem_pressure_limit_hit_usec == 0)
+                                ctx->mem_pressure_limit_hit_usec = now(CLOCK_MONOTONIC);
 
-                        diff = now(CLOCK_MONOTONIC) - ctx->mem_pressure_limit_hit_start;
+                        diff = now(CLOCK_MONOTONIC) - ctx->mem_pressure_limit_hit_usec;
                         if (diff >= ctx->mem_pressure_duration_usec) {
                                 r = set_put(targets, ctx);
                                 if (r < 0)
                                         return -ENOMEM;
                         }
                 } else
-                        ctx->mem_pressure_limit_hit_start = 0;
+                        ctx->mem_pressure_limit_hit_usec = 0;
         }
 
         if (!set_isempty(targets)) {
@@ -333,7 +333,7 @@ int oomd_kill_by_pgscan_rate(Hashmap *h, const char *prefix, bool dry_run, char 
 
                 /* Skip cgroups with no reclaim and memory usage; it won't alleviate pressure.
                  * Continue since there might be "avoid" cgroups at the end. */
-                if (c->pgscan == 0 && c->current_memory_usage == 0)
+                if (c->pgscan == 0 && c->memory_usage == 0)
                         continue;
 
                 r = oomd_cgroup_kill(c->path, /* recurse= */ true, /* dry_run= */ dry_run);
@@ -426,11 +426,11 @@ int oomd_cgroup_context_acquire(const char *path, OomdCGroupContext **ret) {
                 return log_debug_errno(r, "Error parsing memory pressure from %s: %m", p);
 
         if (is_root) {
-                r = procfs_memory_get_used(&ctx->current_memory_usage);
+                r = procfs_memory_get_used(&ctx->memory_usage);
                 if (r < 0)
                         return log_debug_errno(r, "Error getting memory used from procfs: %m");
         } else {
-                r = cg_get_attribute_as_uint64(SYSTEMD_CGROUP_CONTROLLER, path, "memory.current", &ctx->current_memory_usage);
+                r = cg_get_attribute_as_uint64(SYSTEMD_CGROUP_CONTROLLER, path, "memory.current", &ctx->memory_usage);
                 if (r < 0)
                         return log_debug_errno(r, "Error getting memory.current from %s: %m", path);
 
@@ -563,13 +563,13 @@ int oomd_insert_cgroup_context(Hashmap *old_h, Hashmap *new_h, const char *path)
         if (old_ctx) {
                 curr_ctx->last_pgscan = old_ctx->pgscan;
                 curr_ctx->mem_pressure_limit = old_ctx->mem_pressure_limit;
-                curr_ctx->mem_pressure_limit_hit_start = old_ctx->mem_pressure_limit_hit_start;
+                curr_ctx->mem_pressure_limit_hit_usec = old_ctx->mem_pressure_limit_hit_usec;
                 curr_ctx->mem_pressure_duration_usec = old_ctx->mem_pressure_duration_usec;
-                curr_ctx->last_had_mem_reclaim = old_ctx->last_had_mem_reclaim;
+                curr_ctx->last_mem_reclaim_usec = old_ctx->last_mem_reclaim_usec;
         }
 
         if (oomd_pgscan_rate(curr_ctx) > 0)
-                curr_ctx->last_had_mem_reclaim = now(CLOCK_MONOTONIC);
+                curr_ctx->last_mem_reclaim_usec = now(CLOCK_MONOTONIC);
 
         r = hashmap_put(new_h, curr_ctx->path, curr_ctx);
         if (r < 0)
@@ -594,12 +594,12 @@ void oomd_update_cgroup_contexts_between_hashmaps(Hashmap *old_h, Hashmap *curr_
 
                 ctx->last_pgscan = old_ctx->pgscan;
                 ctx->mem_pressure_limit = old_ctx->mem_pressure_limit;
-                ctx->mem_pressure_limit_hit_start = old_ctx->mem_pressure_limit_hit_start;
+                ctx->mem_pressure_limit_hit_usec = old_ctx->mem_pressure_limit_hit_usec;
                 ctx->mem_pressure_duration_usec = old_ctx->mem_pressure_duration_usec;
-                ctx->last_had_mem_reclaim = old_ctx->last_had_mem_reclaim;
+                ctx->last_mem_reclaim_usec = old_ctx->last_mem_reclaim_usec;
 
                 if (oomd_pgscan_rate(ctx) > 0)
-                        ctx->last_had_mem_reclaim = now(CLOCK_MONOTONIC);
+                        ctx->last_mem_reclaim_usec = now(CLOCK_MONOTONIC);
         }
 }
 
@@ -639,7 +639,7 @@ void oomd_dump_memory_pressure_cgroup_context(const OomdCGroupContext *ctx, FILE
                 LOADAVG_INT_SIDE(ctx->memory_pressure.avg60), LOADAVG_DECIMAL_SIDE(ctx->memory_pressure.avg60),
                 LOADAVG_INT_SIDE(ctx->memory_pressure.avg300), LOADAVG_DECIMAL_SIDE(ctx->memory_pressure.avg300),
                 FORMAT_TIMESPAN(ctx->memory_pressure.total, USEC_PER_SEC),
-                strempty(prefix), FORMAT_BYTES(ctx->current_memory_usage));
+                strempty(prefix), FORMAT_BYTES(ctx->memory_usage));
 
         if (!empty_or_root(ctx->path))
                 fprintf(f,

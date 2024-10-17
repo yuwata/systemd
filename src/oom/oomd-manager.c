@@ -499,7 +499,7 @@ static int monitor_memory_pressure_contexts_handler(sd_event_source *s, uint64_t
                          * cgroup. Even after this, well-behaved processes will fault in recently resident pages and
                          * this will cause pressure to remain high. Thus if there isn't any reclaim pressure, no need
                          * to kill something (it won't help anyways). */
-                        if ((now(CLOCK_MONOTONIC) - t->last_had_mem_reclaim) > RECLAIM_DURATION_USEC)
+                        if ((now(CLOCK_MONOTONIC) - t->last_mem_reclaim_usec) > RECLAIM_DURATION_USEC)
                                 continue;
 
                         log_debug("Memory pressure for %s is %lu.%02lu%% > %lu.%02lu%% for > %s with reclaim activity",
@@ -560,7 +560,7 @@ static int monitor_memory_pressure_contexts_handler(sd_event_source *s, uint64_t
                  * pressure continues to be high after a kill. */
                 OomdCGroupContext *c;
                 HASHMAP_FOREACH(c, m->monitored_mem_pressure_cgroup_contexts) {
-                        if (c->mem_pressure_limit_hit_start == 0)
+                        if (c->mem_pressure_limit_hit_usec == 0)
                                 continue;
 
                         r = update_monitored_cgroup_contexts_candidates(

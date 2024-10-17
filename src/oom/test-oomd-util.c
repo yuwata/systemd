@@ -115,7 +115,7 @@ static void test_oomd_cgroup_context_acquire_and_insert(void) {
         assert_se(oomd_cgroup_context_acquire(cgroup, &ctx) == 0);
 
         assert_se(streq(ctx->path, cgroup));
-        assert_se(ctx->current_memory_usage > 0);
+        assert_se(ctx->memory_usage > 0);
         assert_se(ctx->memory_min == 0);
         assert_se(ctx->memory_low == 0);
         assert_se(ctx->swap_usage == 0);
@@ -125,7 +125,7 @@ static void test_oomd_cgroup_context_acquire_and_insert(void) {
 
         assert_se(oomd_cgroup_context_acquire("", &ctx) == 0);
         assert_se(streq(ctx->path, "/"));
-        assert_se(ctx->current_memory_usage > 0);
+        assert_se(ctx->memory_usage > 0);
 
         /* Test hashmap inserts */
         assert_se(h1 = hashmap_new(&oomd_cgroup_ctx_hash_ops));
@@ -137,9 +137,9 @@ static void test_oomd_cgroup_context_acquire_and_insert(void) {
          /* make sure certain values from h1 get updated in h2 */
         c1->pgscan = UINT64_MAX;
         c1->mem_pressure_limit = 6789;
-        c1->mem_pressure_limit_hit_start = 42;
+        c1->mem_pressure_limit_hit_usec = 42;
         c1->mem_pressure_duration_usec = 1234;
-        c1->last_had_mem_reclaim = 888;
+        c1->last_mem_reclaim_usec = 888;
         assert_se(h2 = hashmap_new(&oomd_cgroup_ctx_hash_ops));
         assert_se(oomd_insert_cgroup_context(h1, h2, cgroup) == 0);
         c1 = hashmap_get(h1, cgroup);
@@ -149,9 +149,9 @@ static void test_oomd_cgroup_context_acquire_and_insert(void) {
         assert_se(c1 != c2);
         assert_se(c2->last_pgscan == UINT64_MAX);
         assert_se(c2->mem_pressure_limit == 6789);
-        assert_se(c2->mem_pressure_limit_hit_start == 42);
+        assert_se(c2->mem_pressure_limit_hit_usec == 42);
         assert_se(c2->mem_pressure_duration_usec == 1234);
-        assert_se(c2->last_had_mem_reclaim == 888); /* assumes the live pgscan is less than UINT64_MAX */
+        assert_se(c2->last_mem_reclaim_usec == 888); /* assumes the live pgscan is less than UINT64_MAX */
 }
 
 static void test_oomd_update_cgroup_contexts_between_hashmaps(void) {
@@ -163,15 +163,15 @@ static void test_oomd_update_cgroup_contexts_between_hashmaps(void) {
         OomdCGroupContext ctx_old[2] = {
                 { .path = paths[0],
                   .mem_pressure_limit = 5,
-                  .mem_pressure_limit_hit_start = 777,
+                  .mem_pressure_limit_hit_usec = 777,
                   .mem_pressure_duration_usec = 111,
-                  .last_had_mem_reclaim = 888,
+                  .last_mem_reclaim_usec = 888,
                   .pgscan = 57 },
                 { .path = paths[1],
                   .mem_pressure_limit = 6,
-                  .mem_pressure_limit_hit_start = 888,
+                  .mem_pressure_limit_hit_usec = 888,
                   .mem_pressure_duration_usec = 222,
-                  .last_had_mem_reclaim = 888,
+                  .last_mem_reclaim_usec = 888,
                   .pgscan = 42 },
         };
 
@@ -196,17 +196,17 @@ static void test_oomd_update_cgroup_contexts_between_hashmaps(void) {
         assert_se(c_new = hashmap_get(h_new, "/0.slice"));
         assert_se(c_old->pgscan == c_new->last_pgscan);
         assert_se(c_old->mem_pressure_limit == c_new->mem_pressure_limit);
-        assert_se(c_old->mem_pressure_limit_hit_start == c_new->mem_pressure_limit_hit_start);
+        assert_se(c_old->mem_pressure_limit_hit_usec == c_new->mem_pressure_limit_hit_usec);
         assert_se(c_old->mem_pressure_duration_usec == c_new->mem_pressure_duration_usec);
-        assert_se(c_old->last_had_mem_reclaim == c_new->last_had_mem_reclaim);
+        assert_se(c_old->last_mem_reclaim_usec == c_new->last_mem_reclaim_usec);
 
         assert_se(c_old = hashmap_get(h_old, "/1.slice"));
         assert_se(c_new = hashmap_get(h_new, "/1.slice"));
         assert_se(c_old->pgscan == c_new->last_pgscan);
         assert_se(c_old->mem_pressure_limit == c_new->mem_pressure_limit);
-        assert_se(c_old->mem_pressure_limit_hit_start == c_new->mem_pressure_limit_hit_start);
+        assert_se(c_old->mem_pressure_limit_hit_usec == c_new->mem_pressure_limit_hit_usec);
         assert_se(c_old->mem_pressure_duration_usec == c_new->mem_pressure_duration_usec);
-        assert_se(c_new->last_had_mem_reclaim > c_old->last_had_mem_reclaim);
+        assert_se(c_new->last_mem_reclaim_usec > c_old->last_mem_reclaim_usec);
 }
 
 static void test_oomd_system_context_acquire(void) {
@@ -278,7 +278,7 @@ static void test_oomd_pressure_above(void) {
         assert_se(oomd_pressure_above(h1, &t1) == 1);
         assert_se(set_contains(t1, &ctx[0]));
         assert_se(c = hashmap_get(h1, "/herp.slice"));
-        assert_se(c->mem_pressure_limit_hit_start > 0);
+        assert_se(c->mem_pressure_limit_hit_usec > 0);
 
         /* Low memory pressure */
         assert_se(h2 = hashmap_new(&string_hash_ops));
@@ -286,7 +286,7 @@ static void test_oomd_pressure_above(void) {
         assert_se(oomd_pressure_above(h2, &t2) == 0);
         assert_se(!t2);
         assert_se(c = hashmap_get(h2, "/derp.slice"));
-        assert_se(c->mem_pressure_limit_hit_start == 0);
+        assert_se(c->mem_pressure_limit_hit_usec == 0);
 
         /* High memory pressure w/ multiple cgroups */
         assert_se(hashmap_put(h1, "/derp.slice", &ctx[1]) >= 0);
@@ -294,9 +294,9 @@ static void test_oomd_pressure_above(void) {
         assert_se(set_contains(t3, &ctx[0]));
         assert_se(set_size(t3) == 1);
         assert_se(c = hashmap_get(h1, "/herp.slice"));
-        assert_se(c->mem_pressure_limit_hit_start > 0);
+        assert_se(c->mem_pressure_limit_hit_usec > 0);
         assert_se(c = hashmap_get(h1, "/derp.slice"));
-        assert_se(c->mem_pressure_limit_hit_start == 0);
+        assert_se(c->mem_pressure_limit_hit_usec == 0);
 }
 
 static void test_oomd_mem_and_swap_free_below(void) {
@@ -344,27 +344,27 @@ static void test_oomd_sort_cgroups(void) {
                   .swap_usage = 20,
                   .last_pgscan = 0,
                   .pgscan = 33,
-                  .current_memory_usage = 10 },
+                  .memory_usage = 10 },
                 { .path = paths[1],
                   .swap_usage = 60,
                   .last_pgscan = 33,
                   .pgscan = 1,
-                  .current_memory_usage = 20 },
+                  .memory_usage = 20 },
                 { .path = paths[2],
                   .swap_usage = 40,
                   .last_pgscan = 1,
                   .pgscan = 33,
-                  .current_memory_usage = 40 },
+                  .memory_usage = 40 },
                 { .path = paths[3],
                   .swap_usage = 10,
                   .last_pgscan = 33,
                   .pgscan = 2,
-                  .current_memory_usage = 10 },
+                  .memory_usage = 10 },
                 { .path = paths[4],
                   .swap_usage = 11,
                   .last_pgscan = 33,
                   .pgscan = 33,
-                  .current_memory_usage = 10 },
+                  .memory_usage = 10 },
                 { .path = paths[5],
                   .swap_usage = 90,
                   .last_pgscan = 0,
