@@ -410,12 +410,15 @@ int oomd_cgroup_context_acquire(const char *path, OomdCGroupContext **ret) {
         assert(path);
         assert(ret);
 
-        ctx = new0(OomdCGroupContext, 1);
+        ctx = new(OomdCGroupContext, 1);
         if (!ctx)
                 return -ENOMEM;
 
+        *ctx = (OomdCGroupContext) {
+                .preference = MANAGED_OOM_PREFERENCE_NONE,
+        };
+
         is_root = empty_or_root(path);
-        ctx->preference = MANAGED_OOM_PREFERENCE_NONE;
 
         r = cg_get_path(SYSTEMD_CGROUP_CONTROLLER, path, "memory.pressure", &p);
         if (r < 0)
