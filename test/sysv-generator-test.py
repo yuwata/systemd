@@ -13,7 +13,6 @@ import subprocess
 import sys
 import tempfile
 import unittest
-
 from configparser import RawConfigParser
 from glob import glob
 
@@ -24,7 +23,7 @@ class MultiDict(collections.OrderedDict):
         if isinstance(value, list) and key in self:
             self[key].extend(value)
         else:
-            super(MultiDict, self).__setitem__(key, value)
+            super().__setitem__(key, value)
 
 class SysvGeneratorTest(unittest.TestCase):
     def setUp(self):
@@ -102,8 +101,8 @@ class SysvGeneratorTest(unittest.TestCase):
         keys.setdefault('Required-Stop', keys['Required-Start'])
         keys.setdefault('Default-Start', '2 3 4 5')
         keys.setdefault('Default-Stop', '0 1 6')
-        keys.setdefault('Short-Description', 'test {} service'.format(name_without_sh))
-        keys.setdefault('Description', 'long description for test {} service'.format(name_without_sh))
+        keys.setdefault('Short-Description', f'test {name_without_sh} service')
+        keys.setdefault('Description', f'long description for test {name_without_sh} service')
         script = os.path.join(self.init_d_dir, fname)
         with open(script, 'w') as f:
             f.write('#!/bin/init-d-interpreter\n### BEGIN INIT INFO\n')
@@ -115,7 +114,7 @@ class SysvGeneratorTest(unittest.TestCase):
 
         if enable:
             def make_link(prefix, runlevel):
-                d = os.path.join(self.rcnd_dir, 'rc{}.d'.format(runlevel))
+                d = os.path.join(self.rcnd_dir, f'rc{runlevel}.d')
                 if not os.path.isdir(d):
                     os.mkdir(d)
                 os.symlink('../init.d/' + fname, os.path.join(d, prefix + fname))
@@ -134,7 +133,7 @@ class SysvGeneratorTest(unittest.TestCase):
 
         # should be enabled
         for target in all_targets:
-            link = os.path.join(self.out_dir, '{}.target.wants'.format(target), unit)
+            link = os.path.join(self.out_dir, f'{target}.target.wants', unit)
             if target in targets:
                 unit_file = os.readlink(link)
                 # os.path.exists() will fail on a dangling symlink
@@ -142,7 +141,7 @@ class SysvGeneratorTest(unittest.TestCase):
                 self.assertEqual(os.path.basename(unit_file), unit)
             else:
                 self.assertFalse(os.path.exists(link),
-                                 '{} unexpectedly exists'.format(link))
+                                 f'{link} unexpectedly exists')
 
     #
     # test cases
@@ -176,9 +175,9 @@ class SysvGeneratorTest(unittest.TestCase):
         self.assertEqual(s.get('Service', 'Type'), 'forking')
         init_script = os.path.join(self.init_d_dir, 'foo')
         self.assertEqual(s.get('Service', 'ExecStart'),
-                         '{} start'.format(init_script))
+                         f'{init_script} start')
         self.assertEqual(s.get('Service', 'ExecStop'),
-                         '{} stop'.format(init_script))
+                         f'{init_script} stop')
 
         self.assertNotIn('Overwriting', err)
 
@@ -264,7 +263,7 @@ class SysvGeneratorTest(unittest.TestCase):
             d = os.path.join(self.rcnd_dir, 'rc2.d')
             if not os.path.isdir(d):
                 os.mkdir(d)
-            os.symlink('../init.d/' + name, os.path.join(d, 'S{:>2}{}'.format(prio, name)))
+            os.symlink('../init.d/' + name, os.path.join(d, f'S{prio:>2}{name}'))
 
         err, results = self.run_generator()
         self.assertEqual(sorted(results), ['consumer.service', 'provider.service'])
@@ -339,9 +338,9 @@ class SysvGeneratorTest(unittest.TestCase):
         # calls correct script with .sh
         init_script = os.path.join(self.init_d_dir, 'foo.sh')
         self.assertEqual(s.get('Service', 'ExecStart'),
-                         '{} start'.format(init_script))
+                         f'{init_script} start')
         self.assertEqual(s.get('Service', 'ExecStop'),
-                         '{} stop'.format(init_script))
+                         f'{init_script} stop')
 
         self.assert_enabled('foo.service', ['multi-user', 'graphical'])
 

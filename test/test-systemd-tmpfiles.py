@@ -6,13 +6,13 @@
 # the Free Software Foundation; either version 2.1 of the License, or
 # (at your option) any later version.
 
+import grp
 import os
-import sys
+import pwd
 import socket
 import subprocess
+import sys
 import tempfile
-import pwd
-import grp
 from pathlib import Path
 
 try:
@@ -43,7 +43,7 @@ def test_line(line, *, user, returncode=EX_DATAERR, extra={}):
     args = ['--user'] if user else []
     print('Running {} on {!r}'.format(' '.join(exe_with_args + args), line))
     c = subprocess.run(exe_with_args + ['--create', '-'] + args,
-                       input=line, stdout=subprocess.PIPE, universal_newlines=True,
+                       input=line, stdout=subprocess.PIPE, text=True,
                        **extra)
     assert c.returncode == returncode, c
 
@@ -92,24 +92,24 @@ def test_content(line, expected, *, user, extra={}, subpath='/arg', path_cb=None
     spec = line.format(arg)
     test_line(spec, user=user, returncode=0, extra=extra)
     content = open(arg).read()
-    print('expect: {!r}\nactual: {!r}'.format(expected, content))
+    print(f'expect: {expected!r}\nactual: {content!r}')
     assert content == expected
 
 def test_valid_specifiers(*, user):
     test_content('f {} - - - - two words', 'two words', user=user)
     if id128 and os.path.isfile('/etc/machine-id'):
         try:
-            test_content('f {} - - - - %m', '{}'.format(id128.get_machine().hex), user=user)
+            test_content('f {} - - - - %m', f'{id128.get_machine().hex}', user=user)
         except AssertionError as e:
             print(e)
             print('/etc/machine-id: {!r}'.format(open('/etc/machine-id').read()))
             print('/proc/cmdline: {!r}'.format(open('/proc/cmdline').read()))
             print('skipping')
-        test_content('f {} - - - - %b', '{}'.format(id128.get_boot().hex), user=user)
-    test_content('f {} - - - - %H', '{}'.format(socket.gethostname()), user=user)
-    test_content('f {} - - - - %v', '{}'.format(os.uname().release), user=user)
-    test_content('f {} - - - - %U', '{}'.format(os.getuid() if user else 0), user=user)
-    test_content('f {} - - - - %G', '{}'.format(os.getgid() if user else 0), user=user)
+        test_content('f {} - - - - %b', f'{id128.get_boot().hex}', user=user)
+    test_content('f {} - - - - %H', f'{socket.gethostname()}', user=user)
+    test_content('f {} - - - - %v', f'{os.uname().release}', user=user)
+    test_content('f {} - - - - %U', f'{os.getuid() if user else 0}', user=user)
+    test_content('f {} - - - - %G', f'{os.getgid() if user else 0}', user=user)
 
     try:
         puser = pwd.getpwuid(os.getuid() if user else 0)
@@ -117,7 +117,7 @@ def test_valid_specifiers(*, user):
         puser = None
 
     if puser:
-        test_content('f {} - - - - %u', '{}'.format(puser.pw_name), user=user)
+        test_content('f {} - - - - %u', f'{puser.pw_name}', user=user)
 
     try:
         pgroup = grp.getgrgid(os.getgid() if user else 0)
@@ -125,12 +125,12 @@ def test_valid_specifiers(*, user):
         pgroup = None
 
     if pgroup:
-        test_content('f {} - - - - %g', '{}'.format(pgroup.gr_name), user=user)
+        test_content('f {} - - - - %g', f'{pgroup.gr_name}', user=user)
 
     # Note that %h is the only specifier in which we look the environment,
     # because we check $HOME. Should we even be doing that?
     home = os.path.expanduser("~")
-    test_content('f {} - - - - %h', '{}'.format(home), user=user)
+    test_content('f {} - - - - %h', f'{home}', user=user)
 
     xdg_runtime_dir = os.getenv('XDG_RUNTIME_DIR')
     if xdg_runtime_dir is not None or not user:
@@ -162,7 +162,7 @@ def mkfifo(parent, subpath):
     os.makedirs(parent, mode=0o755, exist_ok=True)
     first_component = subpath.split('/')[1]
     path = parent + '/' + first_component
-    print('path: {}'.format(path))
+    print(f'path: {path}')
     os.mkfifo(path)
 
 def mkdir(parent, subpath):

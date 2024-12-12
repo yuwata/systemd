@@ -1,6 +1,18 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
+# Use this only to (re-)create the test/sys-script.py script,
+# after adding or modifying anything in the test/sys/ directory
+
+# ruff: noqa: I001
+
+import filecmp
+import os
+import stat
+import subprocess
+import sys
+import tempfile
+
 OUTFILE_HEADER = """#!/usr/bin/env python3
 # SPDX-License-Identifier: LGPL-2.1-or-later
 #
@@ -9,16 +21,6 @@ OUTFILE_HEADER = """#!/usr/bin/env python3
 # © 2017 Canonical Ltd.
 # Author: Dan Streetman <dan.streetman@canonical.com>
 """
-
-# Use this only to (re-)create the test/sys-script.py script,
-# after adding or modifying anything in the test/sys/ directory
-
-
-import os, sys
-import stat
-import tempfile
-import filecmp
-import subprocess
 
 OUTFILE_MODE = 0o775
 
@@ -77,7 +79,7 @@ def handle_file(outfile, path):
     with open(path, "rb") as f:
         b = f.read()
     if b.count(b"\n") > 1:
-        r = "\n".join( escape_single_quotes(l) for l in b.split(b"\n") )
+        r = "\n".join( escape_single_quotes(line) for line in b.split(b"\n") )
         r = f"b'''{r}'''"
     else:
         r = repr(b)

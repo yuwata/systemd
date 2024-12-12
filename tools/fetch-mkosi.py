@@ -7,9 +7,9 @@ With -u, if changed, commit the latest hash.
 """
 
 import argparse
+import re
 import shlex
 import subprocess
-import re
 from pathlib import Path
 
 URL = 'https://github.com/systemd/mkosi'

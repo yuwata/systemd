@@ -6,6 +6,7 @@ import re
 import subprocess
 import sys
 
+
 def main():
     build_dir = sys.argv[1]
 

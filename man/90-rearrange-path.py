@@ -17,6 +17,7 @@ interesting generators.
 import os
 import pathlib
 
+
 def rearrange_bin_sbin(path):
     """Make sure any pair of …/bin, …/sbin directories is in this order
 
@@ -38,4 +39,4 @@ if __name__ == '__main__':
                               # If it's not, we'll just crash, which is OK too.
     new = rearrange_bin_sbin(path)
     if new != path:
-        print('PATH={}'.format(new))
+        print(f'PATH={new}')

@@ -10,7 +10,7 @@ def extract_interfaces_xml(output_dir, executable):
         args=[executable.absolute(), '--bus-introspect', 'list'],
         stdout=PIPE,
         check=True,
-        universal_newlines=True)
+        text=True)
 
     interface_names = (x.split()[1] for x in proc.stdout.splitlines())
 
@@ -19,7 +19,7 @@ def extract_interfaces_xml(output_dir, executable):
             args=[executable.absolute(), '--bus-introspect', interface_name],
             stdout=PIPE,
             check=True,
-            universal_newlines=True)
+            text=True)
 
         interface_file_name = output_dir / (interface_name + '.xml')
         interface_file_name.write_text(proc.stdout)

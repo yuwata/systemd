@@ -4,6 +4,7 @@
 
 import gdb
 
+
 class sd_dump_hashmaps(gdb.Command):
     "dump systemd's hashmaps"
 
@@ -69,9 +70,9 @@ class sd_dump_hashmaps(gdb.Command):
                 if len(blocks) > 1 and blocks[0][0] == blocks[0][1] and blocks[-1][0] == n_buckets - 1:
                     blocks[0][1] += blocks[-1][1]
                     blocks = blocks[0:-1]
-                    print("max block: {}".format(max(blocks, key=lambda a: a[1])))
-                    print("sum block lens: {}".format(sum(b[1] for b in blocks)))
-                    print("mean block len: {}".format(sum(b[1] for b in blocks) / len(blocks)))
+                    print(f"max block: {max(blocks, key=lambda a: a[1])}")
+                    print(f"sum block lens: {sum(b[1] for b in blocks)}")
+                    print(f"mean block len: {sum(b[1] for b in blocks) / len(blocks)}")
 
             d = d["debug_list_next"]
 

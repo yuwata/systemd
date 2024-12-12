@@ -15,10 +15,13 @@
 # Note that sys-script.py already creates 10 sd device nodes
 # (sda+sdb and partitions). This script starts with sdc.
 
-import re
-import os
+# ruff: noqa: E743 UP031 F821
+
 import errno
+import os
+import re
 import sys
+
 
 def d(path, mode):
     os.mkdir(path, mode)
@@ -31,7 +34,7 @@ def f(path, mode, contents):
         f.write(contents)
     os.chmod(path, mode)
 
-class SD(object):
+class SD:
 
     sd_major = [8] + list(range(65, 72)) + list(range(128, 136))
     _name_re = re.compile(r'sd(?P<f>[a-z]*)$')
@@ -90,7 +93,7 @@ class SD(object):
         return (maj << 20) + min
 
     def __init__(self, arg):
-        if type(arg) is type(0):
+        if type(arg) is int:
             self._num = arg
         elif arg.startswith("sd"):
             self._init_from_name(arg)
@@ -282,10 +285,10 @@ DEVNAME={devnode}{part_num}
 """
 
 if len(sys.argv) != 3:
-    exit("Usage: {} <target dir> <number>".format(sys.argv[0]))
+    exit(f"Usage: {sys.argv[0]} <target dir> <number>")
 
 if not os.path.isdir(sys.argv[1]):
-    exit("Target dir {} not found".format(sys.argv[1]))
+    exit(f"Target dir {sys.argv[1]} not found")
 
 def create_part_sysfs(disk, sd, prt):
     part = disk

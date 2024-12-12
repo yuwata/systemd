@@ -5,6 +5,7 @@ import ast
 import re
 import sys
 
+
 def read_os_release():
     try:
         filename = '/etc/os-release'

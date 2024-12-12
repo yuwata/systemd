@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
-import sys
 import argparse
+import sys
 
 PARSER = argparse.ArgumentParser()
 PARSER.add_argument('n', type=int)
@@ -69,4 +69,4 @@ for i in range(OPTIONS.n):
 
 if OPTIONS.dots:
     print(file=sys.stderr)
-print('Wrote {} bytes'.format(bytes), file=sys.stderr)
+print(f'Wrote {bytes} bytes', file=sys.stderr)

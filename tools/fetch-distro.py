@@ -12,6 +12,7 @@ import shlex
 import subprocess
 from pathlib import Path
 
+
 def parse_args():
     p = argparse.ArgumentParser(
         description=__doc__,
@@ -62,7 +63,7 @@ def checkout_distro(args, distro: str, config: dict):
     branch = config['Environment']['GIT_BRANCH']
 
     # Only debian uses source-git for now…
-    reference = [f'--reference-if-able=.'] if distro == 'debian' else []
+    reference = ['--reference-if-able=.'] if distro == 'debian' else []
 
     cmd = [
         'git', 'clone', url,

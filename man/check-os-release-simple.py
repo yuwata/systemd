@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: MIT-0
 
 import platform
+
 os_release = platform.freedesktop_os_release()
 
 pretty_name = os_release.get('PRETTY_NAME', 'Linux')

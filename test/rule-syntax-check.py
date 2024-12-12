@@ -28,7 +28,7 @@ comma_separated_group_re = re.compile(r'(?:[^,"]|' + quoted_string_re + '?)+')
 result = 0
 buffer = ''
 for path in rules_files:
-    print('# looking at {}'.format(path))
+    print(f'# looking at {path}')
     lineno = 0
     for line in open(path):
         lineno += 1
@@ -54,7 +54,7 @@ for path in rules_files:
                     no_args_assign.match(clause) or args_assign.match(clause) or
                     program_assign.match(clause)):
 
-                print('Invalid line {}:{}: {}'.format(path, lineno, line))
+                print(f'Invalid line {path}:{lineno}: {line}')
                 print('  clause:', clause)
                 print()
                 result = 1

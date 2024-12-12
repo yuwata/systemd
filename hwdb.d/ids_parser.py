@@ -3,11 +3,24 @@
 
 import re
 import sys
-from pyparsing import (Word, White, Literal, Regex,
-                       LineEnd, SkipTo,
-                       ZeroOrMore, OneOrMore, Combine, Optional, Suppress,
-                       Group, ParserElement,
-                       stringEnd, pythonStyleComment)
+
+from pyparsing import (
+    Combine,
+    Group,
+    LineEnd,
+    Literal,
+    OneOrMore,
+    Optional,
+    ParserElement,
+    Regex,
+    SkipTo,
+    Suppress,
+    White,
+    Word,
+    ZeroOrMore,
+    pythonStyleComment,
+    stringEnd,
+)
 
 EOL = LineEnd().suppress()
 NUM1 = Word('0123456789abcdefABCDEF', exact=1)
@@ -306,7 +319,7 @@ def sdio_classes(p):
         header(out, 'hwdb.d/sdio.ids')
 
         for klass in sorted(items):
-            print(f'',
+            print('',
                   f'sdio:c{klass}v*d*',
                   f' ID_SDIO_CLASS_FROM_DATABASE={items[klass]}', sep='\n', file=out)
 
@@ -345,7 +358,7 @@ def oui(p1, p2, p3):
                'https://services13.ieee.org/RST/standards-ra-web/rest/assignments/download/?registry=MA-S&format=txt')
 
         for pattern in sorted(items):
-            print(f'',
+            print('',
                   f'OUI:{pattern}*',
                   f' ID_OUI_FROM_DATABASE={items[pattern]}', sep='\n', file=out)
 

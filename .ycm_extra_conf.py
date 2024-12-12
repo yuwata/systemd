@@ -36,6 +36,8 @@
 #
 # For more information, please refer to <http://unlicense.org/>
 
+# ruff: noqa: I001
+
 """
 YouCompleteMe configuration file tailored to support the 'meson' build system
 used by the 'systemd' project.

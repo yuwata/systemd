@@ -6,8 +6,12 @@
 # © 2017 Canonical Ltd.
 # Author: Dan Streetman <dan.streetman@canonical.com>
 
-import os, sys
+# ruff: noqa: E743
+
+import os
 import shutil
+import sys
+
 
 def d(path, mode):
     os.mkdir(path, mode)
@@ -21,10 +25,10 @@ def f(path, mode, contents):
     os.chmod(path, mode)
 
 if len(sys.argv) < 2:
-    exit("Usage: {} <target dir>".format(sys.argv[0]))
+    exit(f"Usage: {sys.argv[0]} <target dir>")
 
 if not os.path.isdir(sys.argv[1]):
-    exit("Target dir {} not found".format(sys.argv[1]))
+    exit(f"Target dir {sys.argv[1]} not found")
 
 os.chdir(sys.argv[1])
 

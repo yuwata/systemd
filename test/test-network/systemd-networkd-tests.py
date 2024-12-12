@@ -15,12 +15,14 @@
 #
 #    sudo ./systemd-networkd-tests.py NetworkdNetworkTests.test_ipv6_neigh_retrans_time
 
+# ruff: noqa: UP022
+
 import argparse
 import datetime
 import enum
 import errno
-import itertools
 import ipaddress
+import itertools
 import json
 import os
 import pathlib
@@ -121,7 +123,7 @@ def touch(path):
 def check_output(*command, **kwargs):
     # This checks the result and returns stdout (and stderr) on success.
     command = command[0].split() + list(command[1:])
-    ret = subprocess.run(command, check=False, universal_newlines=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, **kwargs)
+    ret = subprocess.run(command, check=False, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, **kwargs)
     if ret.returncode == 0:
         return ret.stdout.rstrip()
     # When returncode != 0, print stdout and stderr, then trigger CalledProcessError.
@@ -131,21 +133,21 @@ def check_output(*command, **kwargs):
 def call(*command, **kwargs):
     # This returns returncode. stdout and stderr are merged and shown in console
     command = command[0].split() + list(command[1:])
-    return subprocess.run(command, check=False, universal_newlines=True, stderr=subprocess.STDOUT, **kwargs).returncode
+    return subprocess.run(command, check=False, text=True, stderr=subprocess.STDOUT, **kwargs).returncode
 
 def call_check(*command, **kwargs):
     # Same as call() above, but it triggers CalledProcessError if rc != 0
     command = command[0].split() + list(command[1:])
-    return subprocess.run(command, check=False, universal_newlines=True, stderr=subprocess.STDOUT, **kwargs).check_returncode()
+    return subprocess.run(command, check=False, text=True, stderr=subprocess.STDOUT, **kwargs).check_returncode()
 
 def call_quiet(*command, **kwargs):
     command = command[0].split() + list(command[1:])
-    return subprocess.run(command, check=False, universal_newlines=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **kwargs).returncode
+    return subprocess.run(command, check=False, text=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **kwargs).returncode
 
 def run(*command, **kwargs):
     # This returns CompletedProcess instance.
     command = command[0].split() + list(command[1:])
-    return subprocess.run(command, check=False, universal_newlines=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, **kwargs)
+    return subprocess.run(command, check=False, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, **kwargs)
 
 def check_json(string):
     try:
@@ -291,6 +293,7 @@ def expectedFailureIfKernelReturnsInvalidFlags():
 def compare_kernel_version(min_kernel_version):
     try:
         import platform
+
         from packaging import version
     except ImportError:
         print('Failed to import either platform or packaging module, assuming the comparison failed')
@@ -621,7 +624,7 @@ def flush_routes():
             continue
         if 'proto kernel' in line:
             continue
-        if ' dev ' in line and not ' dev lo ' in line:
+        if ' dev ' in line and ' dev lo ' not in line:
             continue
         if not have:
             have = True
@@ -750,7 +753,7 @@ def stop_by_pid_file(pid_file):
     rm_f(pid_file)
 
 def dnr_v4_instance_data(adn, addrs=None, prio=1, alpns=("dot",), dohpath=None):
-    b = bytes()
+    b = b''
     pack = lambda c, w=1: struct.pack('>' + "_BH_I"[w], len(c)) + c
     pyton = lambda n, w=2: struct.pack('>' + "_BH_I"[w], n)
     ipv4 = ipaddress.IPv4Address
@@ -774,7 +777,7 @@ def dnr_v4_instance_data(adn, addrs=None, prio=1, alpns=("dot",), dohpath=None):
     return pack(data, 2)
 
 def dnr_v6_instance_data(adn, addrs=None, prio=1, alpns=("dot",), dohpath=None):
-    b = bytes()
+    b = b''
     pack = lambda c, w=1: struct.pack('>' + "_BH_I"[w], len(c)) + c
     pyton = lambda n, w=2: struct.pack('>' + "_BH_I"[w], n)
     ipv6 = ipaddress.IPv6Address
@@ -968,9 +971,6 @@ def restart_networkd(show_logs=True):
     pid = networkd_pid()
     print(f'Restarted systemd-networkd.service: PID={pid}, Invocation ID={invocation_id}')
 
-def networkd_pid():
-    return int(check_output('systemctl show --value -p MainPID systemd-networkd.service'))
-
 def networkctl(*args):
     # Do not call networkctl if networkd is in failed state.
     # Otherwise, networkd may be restarted and we may get wrong results.
@@ -1089,7 +1089,7 @@ def tearDownModule():
     sys.stdout.flush()
     check_output('journalctl --sync')
 
-class Utilities():
+class Utilities:
     # pylint: disable=no-member
 
     def check_link_exists(self, *link, expected=True):
@@ -1271,7 +1271,7 @@ class Utilities():
         if not shutil.which('nft'):
             print('## Setting up NFT sets skipped: nft command not found.')
         else:
-            if call(f'nft add table inet sd_test') != 0:
+            if call('nft add table inet sd_test') != 0:
                 print('## Setting up NFT table failed.')
                 self.fail()
             if call(f'nft add set inet sd_test {filter_name} {{ type {filter_type}; {flags} }}') != 0:
@@ -1286,7 +1286,7 @@ class Utilities():
                 if call(f'nft delete set inet sd_test {filter_name}') != 0:
                     print('## Tearing down NFT sets failed.')
                     self.fail()
-            if call(f'nft delete table inet sd_test') != 0:
+            if call('nft delete table inet sd_test') != 0:
                 print('## Tearing down NFT table failed.')
                 self.fail()
 
@@ -6085,12 +6085,12 @@ class NetworkdLLDPTests(unittest.TestCase, Utilities):
             self.fail()
 
         # With interface name
-        output = networkctl('lldp', 'veth99');
+        output = networkctl('lldp', 'veth99')
         print(output)
         self.assertRegex(output, r'veth99 .* veth-peer .* .......a...')
 
         # With interface name pattern
-        output = networkctl('lldp', 've*9');
+        output = networkctl('lldp', 've*9')
         print(output)
         self.assertRegex(output, r'veth99 .* veth-peer .* .......a...')
 
@@ -6137,12 +6137,12 @@ class NetworkdLLDPTests(unittest.TestCase, Utilities):
             self.fail()
 
         # With interface name
-        output = networkctl('lldp', 'veth99');
+        output = networkctl('lldp', 'veth99')
         print(output)
         self.assertRegex(output, r'veth99 .* veth-peer .* ....r......')
 
         # With interface name pattern
-        output = networkctl('lldp', 've*9');
+        output = networkctl('lldp', 've*9')
         print(output)
         self.assertRegex(output, r'veth99 .* veth-peer .* ....r......')
 

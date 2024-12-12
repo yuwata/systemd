@@ -4,10 +4,10 @@
 
 import argparse
 import collections
-import sys
+import io
 import os
 import subprocess
-import io
+import sys
 
 try:
     from lxml import etree
@@ -197,7 +197,7 @@ def xml_to_text(destination, xml, *, only_interface=None):
                             only_interface=only_interface,
                             declarations=declarations)
             name = iface.get('name')
-            if not name in BORING_INTERFACES:
+            if name not in BORING_INTERFACES:
                 interfaces.append(name)
 
     print('''};''', file=file)

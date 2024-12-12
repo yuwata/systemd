@@ -18,8 +18,9 @@
 # against the expected value and the result is printed.
 
 import functools
+import grp
 import os
-import pwd, grp
+import pwd
 import re
 import stat
 import subprocess
@@ -31,6 +32,7 @@ from typing import Callable, Optional
 
 try:
     import dataclasses  # requires Python >= 3.7
+
     import pytest
 except ImportError as e:
     print(str(e), file=sys.stderr)

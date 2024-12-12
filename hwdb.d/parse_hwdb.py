@@ -26,16 +26,31 @@
 # SOFTWARE.
 
 import glob
+import os
 import string
 import sys
-import os
 
 try:
-    from pyparsing import (Word, White, Literal, ParserElement, Regex, LineEnd,
-                           OneOrMore, Combine, Or, Optional, Suppress, Group,
-                           nums, alphanums, printables,
-                           stringEnd, pythonStyleComment,
-                           ParseBaseException)
+    from pyparsing import (
+        Combine,
+        Group,
+        LineEnd,
+        Literal,
+        OneOrMore,
+        Optional,
+        Or,
+        ParseBaseException,
+        ParserElement,
+        Regex,
+        Suppress,
+        White,
+        Word,
+        alphanums,
+        nums,
+        printables,
+        pythonStyleComment,
+        stringEnd,
+    )
 except ImportError:
     print('pyparsing is not available')
     sys.exit(77)

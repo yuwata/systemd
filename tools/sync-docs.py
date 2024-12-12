@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
-from argparse import ArgumentParser
 import glob
 import json
 import os
 import re
 import subprocess
 import sys
+from argparse import ArgumentParser
 
 import requests
 

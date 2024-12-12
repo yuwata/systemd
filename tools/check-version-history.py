@@ -113,10 +113,10 @@ def process_pages(pages):
 if __name__ == "__main__":
     with open(os.path.join(os.path.dirname(__file__), "command_ignorelist")) as f:
         command_ignorelist = []
-        for l in f.read().splitlines():
-            if l.startswith("#"):
+        for line in f.read().splitlines():
+            if line.startswith("#"):
                 continue
-            fname, path = l.split(" ", 1)
+            fname, path = line.split(" ", 1)
             path = path.replace("\\n", "\n")
             command_ignorelist.append((fname, path))
     with open(os.path.join(os.path.dirname(__file__), "function_ignorelist")) as f:
