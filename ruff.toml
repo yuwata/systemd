@@ -1,6 +1,12 @@
 target-version = "py39"
 line-length = 109
-lint.select = ["E", "F", "I", "UP"]
+
+[lint]
+select = ["E", "F", "I", "UP"]
+# E501: line-too-long
+# E731: lambda-assignment
+# UP015: redundant-open-modes
+ignore = ["E501", "E731", "UP015"]
 
 [format]
 quote-style = "single"
