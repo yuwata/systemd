@@ -9,6 +9,7 @@ import sys
 
 try:
     import colorama as c
+
     GREEN = c.Fore.GREEN
     YELLOW = c.Fore.YELLOW
     RED = c.Fore.RED
@@ -17,22 +18,22 @@ try:
 except ImportError:
     GREEN = YELLOW = RED = RESET_ALL = BRIGHT = ''
 
+
 class total:
     total = None
     good = 0
     skip = 0
     fail = 0
 
+
 def argument_parser():
     p = argparse.ArgumentParser()
-    p.add_argument('-u', '--unsafe', action='store_true',
-                   help='run "unsafe" tests too')
-    p.add_argument('-A', '--artifact_directory',
-                   help='store output from failed tests in this dir')
-    p.add_argument('-s', '--skip', action='append', default=[],
-                   help='skip the named test')
+    p.add_argument('-u', '--unsafe', action='store_true', help='run "unsafe" tests too')
+    p.add_argument('-A', '--artifact_directory', help='store output from failed tests in this dir')
+    p.add_argument('-s', '--skip', action='append', default=[], help='skip the named test')
 
     return p
+
 
 opts = argument_parser().parse_args()
 

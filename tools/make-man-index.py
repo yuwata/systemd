@@ -9,7 +9,7 @@ from xml_helper import tree, xml_parse, xml_print
 
 MDASH = ' — ' if sys.version_info.major >= 3 else ' -- '
 
-TEMPLATE = '''\
+TEMPLATE = """\
 <refentry id="systemd.index">
 
   <refentryinfo>
@@ -27,9 +27,9 @@ TEMPLATE = '''\
     <refpurpose>List all manpages from the systemd project</refpurpose>
   </refnamediv>
 </refentry>
-'''
+"""
 
-SUMMARY = '''\
+SUMMARY = """\
   <refsect1>
     <title>See Also</title>
     <para>
@@ -38,7 +38,7 @@ SUMMARY = '''\
 
     <para id='counts' />
   </refsect1>
-'''
+"""
 
 COUNTS = '\
 This index contains {count} entries, referring to {pages} individual manual pages.'
@@ -48,6 +48,7 @@ def check_id(page, t):
     page_id = t.getroot().get('id')
     if not re.search('/' + page_id + '[.]', page.translate(str.maketrans('@', '_'))):
         raise ValueError(f"id='{page_id}' is not the same as page name '{page}'")
+
 
 def make_index(pages):
     index = collections.defaultdict(list)
@@ -63,6 +64,7 @@ def make_index(pages):
             index[f.text[0].upper()].append(infos)
     return index
 
+
 def add_letter(template, letter, pages):
     refsect1 = tree.SubElement(template, 'refsect1')
     title = tree.SubElement(refsect1, 'title')
@@ -77,9 +79,10 @@ def add_letter(template, letter, pages):
         d = tree.SubElement(b, 'manvolnum')
         d.text = section
 
-        b.tail = MDASH + purpose # + ' (' + p + ')'
+        b.tail = MDASH + purpose  # + ' (' + p + ')'
 
         tree.SubElement(para, 'sbr')
+
 
 def add_summary(template, indexpages):
     count = 0
@@ -96,6 +99,7 @@ def add_summary(template, indexpages):
     para = template.find(".//para[@id='counts']")
     para.text = COUNTS.format(count=count, pages=len(pages))
 
+
 def make_page(*xml_files):
     template = tree.fromstring(TEMPLATE)
     index = make_index(xml_files)
@@ -106,6 +110,7 @@ def make_page(*xml_files):
     add_summary(template, index.values())
 
     return template
+
 
 if __name__ == '__main__':
     with open(sys.argv[1], 'wb') as file:

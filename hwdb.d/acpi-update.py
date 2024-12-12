@@ -5,6 +5,7 @@ from csv import reader
 
 # pylint: disable=consider-using-with
 
+
 def read_table(filename):
     table = list(reader(open(filename, newline='')))
     table = table[1:]  # Skip header
@@ -15,12 +16,13 @@ def read_table(filename):
         # a mistake, strip it.
         print(f'\nacpi:{row[1].strip()}*:\n ID_VENDOR_FROM_DATABASE={row[0].strip()}')
 
-print('''\
+
+print("""\
 # This file is part of systemd.
 #
 # Data imported from:
 #     https://uefi.org/uefi-pnp-export
-#     https://uefi.org/uefi-acpi-export''')
+#     https://uefi.org/uefi-acpi-export""")
 
 read_table('acpi_id_registry.csv')
 read_table('pnp_id_registry.csv')

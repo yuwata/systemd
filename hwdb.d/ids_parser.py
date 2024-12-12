@@ -35,117 +35,134 @@ text_eol = lambda name: Regex(r'[^\n]+')(name) + EOL
 
 ParserElement.setDefaultWhitespaceChars(' \n')
 
+
 def klass_grammar():
     klass_line = Literal('C ').suppress() + NUM2('klass') + text_eol('text')
     subclass_line = TAB + NUM2('subclass') + text_eol('text')
     protocol_line = TAB + TAB + NUM2('protocol') + text_eol('name')
-    subclass = (subclass_line('SUBCLASS') -
-                ZeroOrMore(Group(protocol_line)('PROTOCOLS*')
-                           ^ COMMENTLINE.suppress()))
-    klass = (klass_line('KLASS') -
-             ZeroOrMore(Group(subclass)('SUBCLASSES*')
-                        ^ COMMENTLINE.suppress()))
+    subclass = subclass_line('SUBCLASS') - ZeroOrMore(
+        Group(protocol_line)('PROTOCOLS*') ^ COMMENTLINE.suppress()
+    )
+    klass = klass_line('KLASS') - ZeroOrMore(Group(subclass)('SUBCLASSES*') ^ COMMENTLINE.suppress())
     return klass
+
 
 def usb_ids_grammar():
     vendor_line = NUM4('vendor') + text_eol('text')
     device_line = TAB + NUM4('device') + text_eol('text')
     interface_line = TAB + TAB + NUM4('interface') + NUM4('interface2') + text_eol('text')
-    device = (device_line +
-              ZeroOrMore(Group(interface_line)
-                         ^ COMMENTLINE.suppress()))
-    vendor = (vendor_line('VENDOR') +
-              ZeroOrMore(Group(device)('VENDOR_DEV*') ^ COMMENTLINE.suppress()))
+    device = device_line + ZeroOrMore(Group(interface_line) ^ COMMENTLINE.suppress())
+    vendor = vendor_line('VENDOR') + ZeroOrMore(Group(device)('VENDOR_DEV*') ^ COMMENTLINE.suppress())
 
     klass = klass_grammar()
 
-    other_line = (Literal('AT ') ^ Literal('HID ') ^ Literal('R ')
-                  ^ Literal('PHY ') ^ Literal('BIAS ') ^ Literal('HUT ')
-                  ^ Literal('L ') ^ Literal('VT ') ^ Literal('HCC ')) + text_eol('text')
-    other_group = (other_line - ZeroOrMore(TAB + text_eol('text')))
+    other_line = (
+        Literal('AT ')
+        ^ Literal('HID ')
+        ^ Literal('R ')
+        ^ Literal('PHY ')
+        ^ Literal('BIAS ')
+        ^ Literal('HUT ')
+        ^ Literal('L ')
+        ^ Literal('VT ')
+        ^ Literal('HCC ')
+    ) + text_eol('text')
+    other_group = other_line - ZeroOrMore(TAB + text_eol('text'))
 
     commentgroup = OneOrMore(COMMENTLINE).suppress() ^ EMPTYLINE.suppress()
-    grammar = OneOrMore(Group(vendor)('VENDORS*')
-                        ^ Group(klass)('CLASSES*')
-                        ^ other_group.suppress() ^ commentgroup) + stringEnd()
+    grammar = (
+        OneOrMore(
+            Group(vendor)('VENDORS*') ^ Group(klass)('CLASSES*') ^ other_group.suppress() ^ commentgroup
+        )
+        + stringEnd()
+    )
 
     grammar.parseWithTabs()
     return grammar
+
 
 def pci_ids_grammar():
     vendor_line = NUM4('vendor') + text_eol('text')
     device_line = TAB + NUM4('device') + text_eol('text')
     subvendor_line = TAB + TAB + NUM4('a') + White(' ') + NUM4('b') + text_eol('name')
 
-    device = (device_line('DEVICE') +
-              ZeroOrMore(Group(subvendor_line)('SUBVENDORS*') ^ COMMENTLINE.suppress()))
-    vendor = (vendor_line('VENDOR') +
-              ZeroOrMore(Group(device)('DEVICES*') ^ COMMENTLINE.suppress()))
+    device = device_line('DEVICE') + ZeroOrMore(
+        Group(subvendor_line)('SUBVENDORS*') ^ COMMENTLINE.suppress()
+    )
+    vendor = vendor_line('VENDOR') + ZeroOrMore(Group(device)('DEVICES*') ^ COMMENTLINE.suppress())
 
     klass = klass_grammar()
 
     commentgroup = OneOrMore(COMMENTLINE).suppress() ^ EMPTYLINE.suppress()
-    grammar = OneOrMore(Group(vendor)('VENDORS*')
-                        ^ Group(klass)('CLASSES*')
-                        ^ commentgroup) + stringEnd()
+    grammar = OneOrMore(Group(vendor)('VENDORS*') ^ Group(klass)('CLASSES*') ^ commentgroup) + stringEnd()
 
     grammar.parseWithTabs()
     return grammar
+
 
 def sdio_ids_grammar():
     vendor_line = NUM4('vendor') + text_eol('text')
     device_line = TAB + NUM4('device') + text_eol('text')
-    vendor = (vendor_line('VENDOR') +
-              ZeroOrMore(Group(device_line)('DEVICES*') ^ COMMENTLINE.suppress()))
+    vendor = vendor_line('VENDOR') + ZeroOrMore(Group(device_line)('DEVICES*') ^ COMMENTLINE.suppress())
 
     klass = klass_grammar()
 
     commentgroup = OneOrMore(COMMENTLINE).suppress() ^ EMPTYLINE.suppress()
-    grammar = OneOrMore(Group(vendor)('VENDORS*')
-                        ^ Group(klass)('CLASSES*')
-                        ^ commentgroup) + stringEnd()
+    grammar = OneOrMore(Group(vendor)('VENDORS*') ^ Group(klass)('CLASSES*') ^ commentgroup) + stringEnd()
 
     grammar.parseWithTabs()
     return grammar
 
+
 def oui_grammar(type):
-    prefix_line = (Combine(NUM2 - Suppress('-') - NUM2 - Suppress('-') - NUM2)('prefix')
-                   - Literal('(hex)') -  text_eol('text'))
+    prefix_line = (
+        Combine(NUM2 - Suppress('-') - NUM2 - Suppress('-') - NUM2)('prefix')
+        - Literal('(hex)')
+        - text_eol('text')
+    )
     if type == 'small':
-        vendor_line = (NUM3('start') - '000-' - NUM3('end') - 'FFF'
-                       - Literal('(base 16)') - text_eol('text2'))
+        vendor_line = NUM3('start') - '000-' - NUM3('end') - 'FFF' - Literal('(base 16)') - text_eol('text2')
     elif type == 'medium':
-        vendor_line = (NUM1('start') - '00000-' - NUM1('end') - 'FFFFF'
-                       - Literal('(base 16)') - text_eol('text2'))
+        vendor_line = (
+            NUM1('start') - '00000-' - NUM1('end') - 'FFFFF' - Literal('(base 16)') - text_eol('text2')
+        )
     else:
         assert type == 'large'
-        vendor_line = (NUM6('start')
-                       - Literal('(base 16)') - text_eol('text2'))
+        vendor_line = NUM6('start') - Literal('(base 16)') - text_eol('text2')
 
     extra_line = TAB - TAB - TAB - TAB - SkipTo(EOL)
     vendor = prefix_line + vendor_line + ZeroOrMore(extra_line) + Optional(EMPTYLINE)
 
-    grammar = (Literal('OUI') + text_eol('header')
-               + text_eol('header') + text_eol('header') + EMPTYLINE
-               + OneOrMore(Group(vendor)('VENDORS*')) + stringEnd())
+    grammar = (
+        Literal('OUI')
+        + text_eol('header')
+        + text_eol('header')
+        + text_eol('header')
+        + EMPTYLINE
+        + OneOrMore(Group(vendor)('VENDORS*'))
+        + stringEnd()
+    )
 
     grammar.parseWithTabs()
     return grammar
 
 
 def header(file, *sources):
-    print('''\
+    print(
+        """\
 # This file is part of systemd.
 #
-# Data imported from:{}{}'''.format(' ' if len(sources) == 1 else '\n#   ',
-                                    '\n#   '.join(sources)),
-          file=file)
+# Data imported from:{}{}""".format(' ' if len(sources) == 1 else '\n#   ', '\n#   '.join(sources)),
+        file=file,
+    )
+
 
 def add_item(items, key, value):
     if key in items:
         print(f'Ignoring duplicate entry: {key} = "{items[key]}", "{value}"')
     else:
         items[key] = value
+
 
 def usb_vendor_model(p):
     items = {}
@@ -167,11 +184,14 @@ def usb_vendor_model(p):
             if len(key) == 1:
                 p, n = 'usb:v{}*', 'VENDOR'
             else:
-                p, n = 'usb:v{}p{}*', 'MODEL',
-            print('', p.format(*key),
-                  f' ID_{n}_FROM_DATABASE={items[key]}', sep='\n', file=out)
+                p, n = (
+                    'usb:v{}p{}*',
+                    'MODEL',
+                )
+            print('', p.format(*key), f' ID_{n}_FROM_DATABASE={items[key]}', sep='\n', file=out)
 
     print(f'Wrote {out.name}')
+
 
 def usb_classes(p):
     items = {}
@@ -205,10 +225,10 @@ def usb_classes(p):
                 p, n = 'usb:v*p*d*dc{}dsc{}*', 'SUBCLASS'
             else:
                 p, n = 'usb:v*p*d*dc{}dsc{}dp{}*', 'PROTOCOL'
-            print('', p.format(*key),
-                  f' ID_USB_{n}_FROM_DATABASE={items[key]}', sep='\n', file=out)
+            print('', p.format(*key), f' ID_USB_{n}_FROM_DATABASE={items[key]}', sep='\n', file=out)
 
     print(f'Wrote {out.name}')
+
 
 def pci_vendor_model(p):
     items = {}
@@ -228,7 +248,7 @@ def pci_vendor_model(p):
                 sub_model = subvendor_group.b.upper()
                 sub_text = subvendor_group.name.strip()
                 if sub_text.startswith(text):
-                    sub_text = sub_text[len(text):].lstrip()
+                    sub_text = sub_text[len(text) :].lstrip()
                 if sub_text:
                     sub_text = f' ({sub_text})'
                 add_item(items, (vendor, device, sub_vendor, sub_model), text + sub_text)
@@ -243,10 +263,10 @@ def pci_vendor_model(p):
                 p, n = 'pci:v0000{}d0000{}*', 'MODEL'
             else:
                 p, n = 'pci:v0000{}d0000{}sv0000{}sd0000{}*', 'MODEL'
-            print('', p.format(*key),
-                  f' ID_{n}_FROM_DATABASE={items[key]}', sep='\n', file=out)
+            print('', p.format(*key), f' ID_{n}_FROM_DATABASE={items[key]}', sep='\n', file=out)
 
     print(f'Wrote {out.name}')
+
 
 def pci_classes(p):
     items = {}
@@ -276,10 +296,10 @@ def pci_classes(p):
                 p, n = 'pci:v*d*sv*sd*bc{}sc{}*', 'SUBCLASS'
             else:
                 p, n = 'pci:v*d*sv*sd*bc{}sc{}i{}*', 'INTERFACE'
-            print('', p.format(*key),
-                  f' ID_PCI_{n}_FROM_DATABASE={items[key]}', sep='\n', file=out)
+            print('', p.format(*key), f' ID_PCI_{n}_FROM_DATABASE={items[key]}', sep='\n', file=out)
 
     print(f'Wrote {out.name}')
+
 
 def sdio_vendor_model(p):
     items = {}
@@ -302,10 +322,10 @@ def sdio_vendor_model(p):
                 p, n = 'sdio:c*v{}*', 'VENDOR'
             else:
                 p, n = 'sdio:c*v{}d{}*', 'MODEL'
-            print('', p.format(*key),
-                  f' ID_{n}_FROM_DATABASE={items[key]}', sep='\n', file=out)
+            print('', p.format(*key), f' ID_{n}_FROM_DATABASE={items[key]}', sep='\n', file=out)
 
     print(f'Wrote {out.name}')
+
 
 def sdio_classes(p):
     items = {}
@@ -319,11 +339,12 @@ def sdio_classes(p):
         header(out, 'hwdb.d/sdio.ids')
 
         for klass in sorted(items):
-            print('',
-                  f'sdio:c{klass}v*d*',
-                  f' ID_SDIO_CLASS_FROM_DATABASE={items[klass]}', sep='\n', file=out)
+            print(
+                '', f'sdio:c{klass}v*d*', f' ID_SDIO_CLASS_FROM_DATABASE={items[klass]}', sep='\n', file=out
+            )
 
     print(f'Wrote {out.name}')
+
 
 # MAC Address Block Large/Medium/Small
 # Large  MA-L 24/24 bit (OUI)
@@ -352,17 +373,18 @@ def oui(p1, p2, p3):
             add_item(items, key, text)
 
     with open('20-OUI.hwdb', 'wt') as out:
-        header(out,
-               'https://services13.ieee.org/RST/standards-ra-web/rest/assignments/download/?registry=MA-L&format=txt',
-               'https://services13.ieee.org/RST/standards-ra-web/rest/assignments/download/?registry=MA-M&format=txt',
-               'https://services13.ieee.org/RST/standards-ra-web/rest/assignments/download/?registry=MA-S&format=txt')
+        header(
+            out,
+            'https://services13.ieee.org/RST/standards-ra-web/rest/assignments/download/?registry=MA-L&format=txt',
+            'https://services13.ieee.org/RST/standards-ra-web/rest/assignments/download/?registry=MA-M&format=txt',
+            'https://services13.ieee.org/RST/standards-ra-web/rest/assignments/download/?registry=MA-S&format=txt',
+        )
 
         for pattern in sorted(items):
-            print('',
-                  f'OUI:{pattern}*',
-                  f' ID_OUI_FROM_DATABASE={items[pattern]}', sep='\n', file=out)
+            print('', f'OUI:{pattern}*', f' ID_OUI_FROM_DATABASE={items[pattern]}', sep='\n', file=out)
 
     print(f'Wrote {out.name}')
+
 
 if __name__ == '__main__':
     args = sys.argv[1:]

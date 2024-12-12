@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
-"""Generate %-from-name.gperf from %-list.txt
-"""
+"""Generate %-from-name.gperf from %-list.txt"""
 
 import sys
 
@@ -22,4 +21,4 @@ struct {name}_name {{ const char* name; int id; }};
 for line in open(input):
     line = line.rstrip()
     s = line.replace('_', '-')
-    print(f"{s}, {prefix}{line}")
+    print(f'{s}, {prefix}{line}')

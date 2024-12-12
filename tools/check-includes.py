@@ -10,6 +10,7 @@ import sys
 
 PROJECT_ROOT = pathlib.Path(os.getenv('PROJECT_SOURCE_ROOT', '.'))
 
+
 def check_file(filename):
     seen = set()
     good = True
@@ -26,6 +27,7 @@ def check_file(filename):
                 good = False
             seen.add(include)
     return good
+
 
 if __name__ == '__main__':
     all_good = all(check_file(name) for name in sys.argv[1:])

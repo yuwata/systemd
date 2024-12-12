@@ -23,14 +23,18 @@ def parse_config_h(filename):
         ans[a] = b
     return ans
 
+
 def render(filename, defines):
     text = open(filename).read()
-    template = jinja2.Template(text,
-                               trim_blocks=True,
-                               lstrip_blocks=True,
-                               keep_trailing_newline=True,
-                               undefined=jinja2.StrictUndefined)
+    template = jinja2.Template(
+        text,
+        trim_blocks=True,
+        lstrip_blocks=True,
+        keep_trailing_newline=True,
+        undefined=jinja2.StrictUndefined,
+    )
     return template.render(defines)
+
 
 def main():
     defines = parse_config_h(sys.argv[1])
@@ -39,6 +43,7 @@ def main():
         f.write(output)
     info = os.stat(sys.argv[2])
     os.chmod(sys.argv[3], info.st_mode)
+
 
 if __name__ == '__main__':
     main()

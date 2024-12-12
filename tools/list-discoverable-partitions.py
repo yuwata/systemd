@@ -5,10 +5,10 @@ import re
 import sys
 import uuid
 
-HEADER = '''\
+HEADER = """\
 | Name | Partition Type UUID | Allowed File Systems | Explanation |
 |------|---------------------|----------------------|-------------|
-'''
+"""
 
 ARCHITECTURES = {
     'ALPHA':       'Alpha',
@@ -30,7 +30,7 @@ ARCHITECTURES = {
     'TILEGX':      'TILE-Gx',
     'X86':         'x86',
     'X86_64':      'amd64/x86_64',
-}
+}  # fmt: skip
 
 TYPES = {
     'ROOT' :            'Root Partition',
@@ -49,7 +49,7 @@ TYPES = {
     'USER_HOME':        'Per-user Home Partition',
     'LINUX_GENERIC':    'Generic Linux Data Partition',
     'XBOOTLDR':         'Extended Boot Loader Partition',
-}
+}  # fmt: skip
 
 DESCRIPTIONS = {
     'ROOT': (
@@ -138,7 +138,8 @@ DESCRIPTIONS = {
         'should be used for all partitions that carry Linux file systems. The installer needs '
         'to mount them explicitly via entries in `/etc/fstab`. Optionally, these partitions may '
         'be encrypted with LUKS. This partition type predates the Discoverable Partitions Specification.'),
-}
+}  # fmt: skip
+
 
 def extract(file):
     for line in file:
@@ -148,7 +149,10 @@ def extract(file):
             continue
 
         name = line.split()[1]
-        if m2 := re.match(r'^(ROOT|USR)_([A-Z0-9]+|X86_64|PPC64_LE|MIPS_LE|MIPS64_LE)(|_VERITY|_VERITY_SIG)\s+SD_ID128_MAKE\((.*)\)', m.group(1)):
+        if m2 := re.match(
+            r'^(ROOT|USR)_([A-Z0-9]+|X86_64|PPC64_LE|MIPS_LE|MIPS64_LE)(|_VERITY|_VERITY_SIG)\s+SD_ID128_MAKE\((.*)\)',
+            m.group(1),
+        ):
             ptype, arch, suffix, u = m2.groups()
             u = uuid.UUID(u.replace(',', ''))
             assert arch in ARCHITECTURES, f'{arch} not in f{ARCHITECTURES}'
@@ -164,6 +168,7 @@ def extract(file):
 
         else:
             raise ValueError(f'Failed to match: {m.group(1)}')
+
 
 def generate(defines):
     prevtype = None
@@ -187,6 +192,7 @@ def generate(defines):
             morea = moreb = 'ditto'
 
         print(f'| _{tdesc}{adesc}_ | `{puuid}` `{name}` | {morea} | {moreb} |')
+
 
 if __name__ == '__main__':
     known = extract(sys.stdin)

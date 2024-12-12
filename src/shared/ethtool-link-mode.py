@@ -7,7 +7,7 @@ import subprocess
 import sys
 
 OVERRIDES = {
-    'autoneg' : 'autonegotiation',
+    'autoneg': 'autonegotiation',
 }
 
 mode, cpp, header = sys.argv[1:]
@@ -47,10 +47,10 @@ if xml:
 
 for enum, name, speed, value, duplex in entries:
     if xml:
-        print(f'''\
+        print(f"""\
                 <row><entry><option>{name}</option></entry>
                 <entry>{speed}</entry><entry>{duplex}</entry></row>
-        ''')
+        """)
     else:
         enum = f'[{enum}]'
         print(f'        {enum:50} = "{name}",')

@@ -26,4 +26,4 @@ struct {name}_name {{ const char* name; int id; }};
 %%""")
 
     for line in open(file):
-        print("{0}, {1}{0}".format(line.rstrip(), prefix))
+        print('{0}, {1}{0}'.format(line.rstrip(), prefix))

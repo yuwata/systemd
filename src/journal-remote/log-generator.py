@@ -51,14 +51,16 @@ for i in range(OPTIONS.n):
         data = '{:0{}}'.format(counter, OPTIONS.data_size)
         counter += 1
 
-    entry = template.format(m=0x198603b12d7 + i,
-                            realtime_ts=1404101101501873 + i,
-                            monotonic_ts=1753961140951 + i,
-                            source_realtime_ts=1404101101483516 + i,
-                            priority=priority,
-                            facility=facility,
-                            message=message,
-                            data=data)
+    entry = template.format(
+        m=0x198603B12D7 + i,
+        realtime_ts=1404101101501873 + i,
+        monotonic_ts=1753961140951 + i,
+        source_realtime_ts=1404101101483516 + i,
+        priority=priority,
+        facility=facility,
+        message=message,
+        data=data,
+    )
 
     bytes += len(entry)
 

@@ -18,12 +18,14 @@ from glob import glob
 
 sysv_generator = './systemd-sysv-generator'
 
+
 class MultiDict(collections.OrderedDict):
     def __setitem__(self, key, value):
         if isinstance(value, list) and key in self:
             self[key].extend(value)
         else:
             super().__setitem__(key, value)
+
 
 class SysvGeneratorTest(unittest.TestCase):
     def setUp(self):
@@ -44,12 +46,12 @@ class SysvGeneratorTest(unittest.TestCase):
     #
 
     def run_generator(self, expect_error=False):
-        '''Run sysv-generator.
+        """Run sysv-generator.
 
         Fail if stderr contains any "Fail", unless expect_error is True.
         Return (stderr, filename -> ConfigParser) pair with output to stderr and
         parsed generated units.
-        '''
+        """
         env = os.environ.copy()
         # We might debug log about errors that aren't actually fatal so let's bump the log level to info to
         # prevent those logs from interfering with the test.
@@ -60,8 +62,11 @@ class SysvGeneratorTest(unittest.TestCase):
         env['SYSTEMD_UNIT_PATH'] = self.unit_dir
         gen = subprocess.Popen(
             [sysv_generator, 'ignored', 'ignored', self.out_dir],
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-            universal_newlines=True, env=env)
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            universal_newlines=True,
+            env=env,
+        )
         (out, err) = gen.communicate()
         if not expect_error:
             self.assertFalse('Fail' in err, err)
@@ -87,14 +92,14 @@ class SysvGeneratorTest(unittest.TestCase):
         return (err, results)
 
     def add_sysv(self, fname, keys, enable=False, prio=1):
-        '''Create a SysV init script with the given keys in the LSB header
+        """Create a SysV init script with the given keys in the LSB header
 
         There are sensible default values for all fields.
         If enable is True, links will be created in the rcN.d dirs. In that
         case, the priority can be given with "prio" (default to 1).
 
         Return path of generated script.
-        '''
+        """
         name_without_sh = fname.endswith('.sh') and fname[:-3] or fname
         keys.setdefault('Provides', name_without_sh)
         keys.setdefault('Required-Start', '$local_fs')
@@ -113,6 +118,7 @@ class SysvGeneratorTest(unittest.TestCase):
         os.chmod(script, 0o755)
 
         if enable:
+
             def make_link(prefix, runlevel):
                 d = os.path.join(self.rcnd_dir, f'rc{runlevel}.d')
                 if not os.path.isdir(d):
@@ -127,7 +133,7 @@ class SysvGeneratorTest(unittest.TestCase):
         return script
 
     def assert_enabled(self, unit, targets):
-        '''assert that a unit is enabled in precisely the given targets'''
+        """assert that a unit is enabled in precisely the given targets"""
 
         all_targets = ['multi-user', 'graphical']
 
@@ -140,22 +146,21 @@ class SysvGeneratorTest(unittest.TestCase):
                 self.assertTrue(os.path.exists(link))
                 self.assertEqual(os.path.basename(unit_file), unit)
             else:
-                self.assertFalse(os.path.exists(link),
-                                 f'{link} unexpectedly exists')
+                self.assertFalse(os.path.exists(link), f'{link} unexpectedly exists')
 
     #
     # test cases
     #
 
     def test_nothing(self):
-        '''no input files'''
+        """no input files"""
 
         results = self.run_generator()[1]
         self.assertEqual(results, {})
         self.assertEqual(os.listdir(self.out_dir), [])
 
     def test_simple_disabled(self):
-        '''simple service without dependencies, disabled'''
+        """simple service without dependencies, disabled"""
 
         self.add_sysv('foo', {}, enable=False)
         err, results = self.run_generator()
@@ -169,20 +174,17 @@ class SysvGeneratorTest(unittest.TestCase):
         self.assertEqual(s.get('Unit', 'Description'), 'LSB: test foo service')
         # $local_fs does not need translation, don't expect any dependency
         # fields here
-        self.assertEqual(set(s.options('Unit')),
-                         set(['Documentation', 'SourcePath', 'Description']))
+        self.assertEqual(set(s.options('Unit')), set(['Documentation', 'SourcePath', 'Description']))
 
         self.assertEqual(s.get('Service', 'Type'), 'forking')
         init_script = os.path.join(self.init_d_dir, 'foo')
-        self.assertEqual(s.get('Service', 'ExecStart'),
-                         f'{init_script} start')
-        self.assertEqual(s.get('Service', 'ExecStop'),
-                         f'{init_script} stop')
+        self.assertEqual(s.get('Service', 'ExecStart'), f'{init_script} start')
+        self.assertEqual(s.get('Service', 'ExecStop'), f'{init_script} stop')
 
         self.assertNotIn('Overwriting', err)
 
     def test_simple_enabled_all(self):
-        '''simple service without dependencies, enabled in all runlevels'''
+        """simple service without dependencies, enabled in all runlevels"""
 
         self.add_sysv('foo', {}, enable=True)
         err, results = self.run_generator()
@@ -191,7 +193,7 @@ class SysvGeneratorTest(unittest.TestCase):
         self.assertNotIn('Overwriting', err)
 
     def test_simple_escaped(self):
-        '''simple service without dependencies, that requires escaping the name'''
+        """simple service without dependencies, that requires escaping the name"""
 
         self.add_sysv('foo+', {})
         self.add_sysv('foo-admin', {})
@@ -200,7 +202,7 @@ class SysvGeneratorTest(unittest.TestCase):
         self.assertNotIn('Overwriting', err)
 
     def test_simple_enabled_some(self):
-        '''simple service without dependencies, enabled in some runlevels'''
+        """simple service without dependencies, enabled in some runlevels"""
 
         self.add_sysv('foo', {'Default-Start': '2 4'}, enable=True)
         err, results = self.run_generator()
@@ -208,42 +210,45 @@ class SysvGeneratorTest(unittest.TestCase):
         self.assert_enabled('foo.service', ['multi-user'])
 
     def test_lsb_macro_dep_single(self):
-        '''single LSB macro dependency: $network'''
+        """single LSB macro dependency: $network"""
 
         self.add_sysv('foo', {'Required-Start': '$network'})
         s = self.run_generator()[1]['foo.service']
-        self.assertEqual(set(s.options('Unit')),
-                         set(['Documentation', 'SourcePath', 'Description', 'After', 'Wants']))
+        self.assertEqual(
+            set(s.options('Unit')), set(['Documentation', 'SourcePath', 'Description', 'After', 'Wants'])
+        )
         self.assertEqual(s.get('Unit', 'After'), 'network-online.target')
         self.assertEqual(s.get('Unit', 'Wants'), 'network-online.target')
 
     def test_lsb_macro_dep_multi(self):
-        '''multiple LSB macro dependencies'''
+        """multiple LSB macro dependencies"""
 
         self.add_sysv('foo', {'Required-Start': '$named $portmap'})
         s = self.run_generator()[1]['foo.service']
-        self.assertEqual(set(s.options('Unit')),
-                         set(['Documentation', 'SourcePath', 'Description', 'After']))
+        self.assertEqual(
+            set(s.options('Unit')), set(['Documentation', 'SourcePath', 'Description', 'After'])
+        )
         self.assertEqual(s.get('Unit', 'After').split(), ['nss-lookup.target', 'rpcbind.target'])
 
     def test_lsb_deps(self):
-        '''LSB header dependencies to other services'''
+        """LSB header dependencies to other services"""
 
         # also give symlink priorities here; they should be ignored
-        self.add_sysv('foo', {'Required-Start': 'must1 must2',
-                              'Should-Start': 'may1 ne_may2'},
-                      enable=True, prio=40)
+        self.add_sysv(
+            'foo', {'Required-Start': 'must1 must2', 'Should-Start': 'may1 ne_may2'}, enable=True, prio=40
+        )
         self.add_sysv('must1', {}, enable=True, prio=10)
         self.add_sysv('must2', {}, enable=True, prio=15)
         self.add_sysv('may1', {}, enable=True, prio=20)
         # do not create ne_may2
         err, results = self.run_generator()
-        self.assertEqual(sorted(results),
-                         ['foo.service', 'may1.service', 'must1.service', 'must2.service'])
+        self.assertEqual(sorted(results), ['foo.service', 'may1.service', 'must1.service', 'must2.service'])
 
         # foo should depend on all of them
-        self.assertEqual(sorted(results['foo.service'].get('Unit', 'After').split()),
-                         ['may1.service', 'must1.service', 'must2.service', 'ne_may2.service'])
+        self.assertEqual(
+            sorted(results['foo.service'].get('Unit', 'After').split()),
+            ['may1.service', 'must1.service', 'must2.service', 'ne_may2.service'],
+        )
 
         # other services should not depend on each other
         self.assertFalse(results['must1.service'].has_option('Unit', 'After'))
@@ -251,7 +256,7 @@ class SysvGeneratorTest(unittest.TestCase):
         self.assertFalse(results['may1.service'].has_option('Unit', 'After'))
 
     def test_symlink_prio_deps(self):
-        '''script without LSB headers use rcN.d priority'''
+        """script without LSB headers use rcN.d priority"""
 
         # create two init.d scripts without LSB header and enable them with
         # startup priorities
@@ -268,46 +273,45 @@ class SysvGeneratorTest(unittest.TestCase):
         err, results = self.run_generator()
         self.assertEqual(sorted(results), ['consumer.service', 'provider.service'])
         self.assertFalse(results['provider.service'].has_option('Unit', 'After'))
-        self.assertEqual(results['consumer.service'].get('Unit', 'After'),
-                         'provider.service')
+        self.assertEqual(results['consumer.service'].get('Unit', 'After'), 'provider.service')
 
     def test_multiple_provides(self):
-        '''multiple Provides: names'''
+        """multiple Provides: names"""
 
         self.add_sysv('foo', {'Provides': 'foo bar baz'})
         err, results = self.run_generator()
         self.assertEqual(list(results), ['foo.service'])
-        self.assertEqual(set(results['foo.service'].options('Unit')),
-                         set(['Documentation', 'SourcePath', 'Description']))
+        self.assertEqual(
+            set(results['foo.service'].options('Unit')), set(['Documentation', 'SourcePath', 'Description'])
+        )
         # should create symlinks for the alternative names
         for f in ['bar.service', 'baz.service']:
-            self.assertEqual(os.readlink(os.path.join(self.out_dir, f)),
-                             'foo.service')
+            self.assertEqual(os.readlink(os.path.join(self.out_dir, f)), 'foo.service')
         self.assertNotIn('Overwriting', err)
 
     def test_provides_escaped(self):
-        '''a script that Provides: a name that requires escaping'''
+        """a script that Provides: a name that requires escaping"""
 
         self.add_sysv('foo', {'Provides': 'foo foo+'})
         err, results = self.run_generator()
         self.assertEqual(list(results), ['foo.service'])
-        self.assertEqual(os.readlink(os.path.join(self.out_dir, 'foo\\x2b.service')),
-                         'foo.service')
+        self.assertEqual(os.readlink(os.path.join(self.out_dir, 'foo\\x2b.service')), 'foo.service')
         self.assertNotIn('Overwriting', err)
 
     def test_same_provides_in_multiple_scripts(self):
-        '''multiple init.d scripts provide the same name'''
+        """multiple init.d scripts provide the same name"""
 
         self.add_sysv('foo', {'Provides': 'foo common'}, enable=True, prio=1)
         self.add_sysv('bar', {'Provides': 'bar common'}, enable=True, prio=2)
         err, results = self.run_generator()
         self.assertEqual(sorted(results), ['bar.service', 'foo.service'])
         # should create symlink for the alternative name for either unit
-        self.assertIn(os.readlink(os.path.join(self.out_dir, 'common.service')),
-                      ['foo.service', 'bar.service'])
+        self.assertIn(
+            os.readlink(os.path.join(self.out_dir, 'common.service')), ['foo.service', 'bar.service']
+        )
 
     def test_provide_other_script(self):
-        '''init.d scripts provides the name of another init.d script'''
+        """init.d scripts provides the name of another init.d script"""
 
         self.add_sysv('foo', {'Provides': 'foo bar'}, enable=True)
         self.add_sysv('bar', {'Provides': 'bar'}, enable=True)
@@ -318,14 +322,14 @@ class SysvGeneratorTest(unittest.TestCase):
         self.assertIn('Overwriting', err)
 
     def test_nonexecutable_script(self):
-        '''ignores non-executable init.d script'''
+        """ignores non-executable init.d script"""
 
         os.chmod(self.add_sysv('foo', {}), 0o644)
         err, results = self.run_generator()
         self.assertEqual(results, {})
 
     def test_sh_suffix(self):
-        '''init.d script with .sh suffix'''
+        """init.d script with .sh suffix"""
 
         self.add_sysv('foo.sh', {}, enable=True)
         err, results = self.run_generator()
@@ -337,30 +341,26 @@ class SysvGeneratorTest(unittest.TestCase):
 
         # calls correct script with .sh
         init_script = os.path.join(self.init_d_dir, 'foo.sh')
-        self.assertEqual(s.get('Service', 'ExecStart'),
-                         f'{init_script} start')
-        self.assertEqual(s.get('Service', 'ExecStop'),
-                         f'{init_script} stop')
+        self.assertEqual(s.get('Service', 'ExecStart'), f'{init_script} start')
+        self.assertEqual(s.get('Service', 'ExecStop'), f'{init_script} stop')
 
         self.assert_enabled('foo.service', ['multi-user', 'graphical'])
 
     def test_sh_suffix_with_provides(self):
-        '''init.d script with .sh suffix and Provides:'''
+        """init.d script with .sh suffix and Provides:"""
 
         self.add_sysv('foo.sh', {'Provides': 'foo bar'})
         err, results = self.run_generator()
         # ensure we don't try to create a symlink to itself
         self.assertNotIn('itself', err)
         self.assertEqual(list(results), ['foo.service'])
-        self.assertEqual(results['foo.service'].get('Unit', 'Description'),
-                         'LSB: test foo service')
+        self.assertEqual(results['foo.service'].get('Unit', 'Description'), 'LSB: test foo service')
 
         # should create symlink for the alternative name
-        self.assertEqual(os.readlink(os.path.join(self.out_dir, 'bar.service')),
-                         'foo.service')
+        self.assertEqual(os.readlink(os.path.join(self.out_dir, 'bar.service')), 'foo.service')
 
     def test_hidden_files(self):
-        '''init.d script with hidden file suffix'''
+        """init.d script with hidden file suffix"""
 
         script = self.add_sysv('foo', {}, enable=True)
         # backup files (not enabled in rcN.d/)
@@ -375,7 +375,7 @@ class SysvGeneratorTest(unittest.TestCase):
         self.assert_enabled('foo.service', ['multi-user', 'graphical'])
 
     def test_backup_file(self):
-        '''init.d script with backup file'''
+        """init.d script with backup file"""
 
         script = self.add_sysv('foo', {}, enable=True)
         # backup files (not enabled in rcN.d/)
@@ -396,7 +396,7 @@ class SysvGeneratorTest(unittest.TestCase):
         self.assert_enabled('foo.old.service', [])
 
     def test_existing_native_unit(self):
-        '''existing native unit'''
+        """existing native unit"""
 
         with open(os.path.join(self.unit_dir, 'foo.service'), 'w') as f:
             f.write('[Unit]\n')

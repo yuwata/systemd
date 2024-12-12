@@ -6,11 +6,7 @@ from subprocess import PIPE, run
 
 
 def extract_interfaces_xml(output_dir, executable):
-    proc = run(
-        args=[executable.absolute(), '--bus-introspect', 'list'],
-        stdout=PIPE,
-        check=True,
-        text=True)
+    proc = run(args=[executable.absolute(), '--bus-introspect', 'list'], stdout=PIPE, check=True, text=True)
 
     interface_names = (x.split()[1] for x in proc.stdout.splitlines())
 
@@ -19,19 +15,18 @@ def extract_interfaces_xml(output_dir, executable):
             args=[executable.absolute(), '--bus-introspect', interface_name],
             stdout=PIPE,
             check=True,
-            text=True)
+            text=True,
+        )
 
         interface_file_name = output_dir / (interface_name + '.xml')
         interface_file_name.write_text(proc.stdout)
         interface_file_name.chmod(0o644)
 
+
 def main():
     parser = ArgumentParser()
-    parser.add_argument('output',
-                        type=Path)
-    parser.add_argument('executables',
-                        nargs='+',
-                        type=Path)
+    parser.add_argument('output', type=Path)
+    parser.add_argument('executables', nargs='+', type=Path)
 
     args = parser.parse_args()
 
@@ -40,6 +35,7 @@ def main():
     args.output.chmod(mode=0o755)
     for exe in args.executables:
         extract_interfaces_xml(args.output, exe)
+
 
 if __name__ == '__main__':
     main()

@@ -25,14 +25,13 @@ def read_os_release():
                 val = ast.literal_eval(val)
             yield name, val
         else:
-            print(f'{filename}:{line_number}: bad line {line!r}',
-                  file=sys.stderr)
+            print(f'{filename}:{line_number}: bad line {line!r}', file=sys.stderr)
+
 
 os_release = dict(read_os_release())
 
 pretty_name = os_release.get('PRETTY_NAME', 'Linux')
 print(f'Running on {pretty_name!r}')
 
-if 'debian' in [os_release.get('ID', 'linux'),
-                *os_release.get('ID_LIKE', '').split()]:
+if 'debian' in [os_release.get('ID', 'linux'), *os_release.get('ID_LIKE', '').split()]:
     print('Looks like Debian!')
