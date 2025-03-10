@@ -1810,6 +1810,7 @@ static void run_context_detach_bus(RunContext *c) {
         c->match_properties_changed = sd_bus_slot_unref(c->match_properties_changed);
         c->match_disconnected = sd_bus_slot_unref(c->match_disconnected);
         c->match_job_removed = sd_bus_slot_unref(c->match_job_removed);
+        c->start_job = mfree(c->start_job);
 }
 
 static int pty_forward_handler(PTYForward *f, int rcode, void *userdata) {
