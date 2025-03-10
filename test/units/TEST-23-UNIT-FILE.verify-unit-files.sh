@@ -41,5 +41,10 @@ for unit_file in "${UNIT_FILES[@]}"; do
         continue
     fi
 
+    if [[ -L "$unit_file" && "$(readlink "$unit_file")" == "/dev/null" ]]; then
+        echo "$unit_file is masked, skipping"
+        continue
+    fi
+
     systemd-analyze --recursive-errors=no --man=no verify "$unit_file"
 done
