@@ -6,5 +6,6 @@ endif
 
 libc_wrapper_sources += files(
         'crypt.c',
+        'stdio.c',
         'unistd.c',
 )
