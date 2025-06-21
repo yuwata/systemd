@@ -1568,7 +1568,6 @@ foreach term : ['analyze',
                 'hibernate',
                 'hostnamed',
                 'hwdb',
-                'idn',
                 'ima',
                 'ipe',
                 'initrd',
@@ -1606,6 +1605,13 @@ foreach term : ['analyze',
 endforeach
 
 enable_sysusers = conf.get('ENABLE_SYSUSERS') == 1
+
+have = get_option('idn')
+if have and get_option('libc') == 'musl'
+        warning('IDN support is requested but it is not supported when building with musl, disabling it.')
+        have = false
+endif
+conf.set10('ENABLE_IDN', have)
 
 foreach tuple : [['nss-mymachines', 'machined'],
                  ['nss-resolve',    'resolve']]
