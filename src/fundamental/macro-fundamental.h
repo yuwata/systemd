@@ -6,6 +6,12 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#if SD_BOOT
+#define assert_cc(expr) _Static_assert(expr, #expr)
+#else
+#include <features.h>
+#endif
+
 /* Temporarily disable some warnings */
 #define DISABLE_WARNING_DEPRECATED_DECLARATIONS                         \
         _Pragma("GCC diagnostic push");                                 \
@@ -138,8 +144,6 @@
 
 #define XCONCATENATE(x, y) x ## y
 #define CONCATENATE(x, y) XCONCATENATE(x, y)
-
-#define assert_cc(expr) _Static_assert(expr, #expr)
 
 #define UNIQ_T(x, uniq) CONCATENATE(__unique_prefix_, CONCATENATE(x, uniq))
 #define UNIQ __COUNTER__
