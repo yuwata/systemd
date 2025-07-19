@@ -27,6 +27,8 @@ PACKAGES=(
     isc-dhcp-client
     itstool
     kbd
+    libarchive-dev
+    libaudit-dev
     libblkid-dev
     libbpf-dev
     libcap-dev
@@ -117,6 +119,15 @@ elif [[ "$COMPILER" == gcc ]]; then
         # Only needed for ia32 EFI builds
         PACKAGES+=("gcc-$COMPILER_VERSION-multilib")
     fi
+elif [[ "$COMPILER" == musl-gcc ]]; then
+    CC="musl-gcc"
+    CXX="musl-gcc"
+    AR="musl-gcc"
+    CFLAGS="-idirafter/usr/include/$(uname -m)-linux-gnu"
+    CXXFLAGS="$CFLAGS"
+    ADDITIONAL_ARGS="-Dlibc=musl -Ddbus-interfaces-dir=no"
+
+    PACKAGES+=("musl-tools")
 else
     fatal "Unknown compiler: $COMPILER"
 fi
@@ -141,6 +152,71 @@ $CC --version
 meson --version
 ninja --version
 
+if [[ "$COMPILER" == musl-gcc ]]; then
+    ARCH="$(uname -m)"
+    LINKS=(
+        acl
+        archive.h
+        archive_entry.h
+        asm-generic
+        #audit-records.h (since ubuntu-24.10)
+        #audit_logging.h (since ubuntu-24.10)
+        bpf
+        bzlib.h
+        dwarf.h
+        elfutils
+        fido.h
+        gcrypt.h
+        gelf.h
+        gnutls
+        idn2.h
+        libaudit.h
+        libcryptsetup.h
+        libelf.h
+        libiptc
+        libkmod.h
+        linux
+        lz4.h
+        lz4frame.h
+        lz4frame_static.h
+        lz4hc.h
+        lzma
+        lzma.h
+        microhttpd.h
+        mtd
+        openssl
+        pcre2.h
+        pwquality.h
+        qrencode.h
+        seccomp-syscalls.h
+        seccomp.h
+        security
+        selinux
+        sys/acl.h
+        sys/capability.h
+        tss2
+        xen
+        xkbcommon
+        zconf.h
+        zlib.h
+        zstd.h
+        zstd_errors.h
+    )
+
+    echo | gcc -xc -E -v -
+    echo | musl-gcc -xc -E -v -
+
+    for i in "${LINKS[@]}"; do
+        if [[ -e "/usr/include/$i" ]]; then
+            sudo ln -s "/usr/include/$i" "/usr/include/${ARCH}-linux-musl/$i"
+        else
+            fatal "Cannot find /usr/include/$i"
+        fi
+    done
+
+    cat "/usr/include/${ARCH}-linux-musl/sys/stat.h"
+fi
+
 for args in "${ARGS[@]}"; do
     SECONDS=0
 
@@ -157,7 +233,7 @@ for args in "${ARGS[@]}"; do
          meson setup \
                -Dtests=unsafe -Dslow-tests=true -Dfuzz-tests=true --werror \
                -Dnobody-group=nogroup -Ddebug=false \
-               $args build; then
+               $args ${ADDITIONAL_ARGS:-} build; then
 
         cat build/meson-logs/meson-log.txt
         fatal "meson failed with $args"
