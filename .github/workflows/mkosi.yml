@@ -166,7 +166,7 @@ jobs:
             shim: 0
 
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
       - uses: systemd/mkosi@d45142e329550abc9c6fc63c1f1f86e5286d3d67
 
       # Freeing up disk space with rm -rf can take multiple minutes. Since we don't need the extra free space
