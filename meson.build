@@ -1030,6 +1030,23 @@ else
         libatomic = []
 endif
 
+# On some distributions that uses musl (e.g. Alpine), libintl.h may be provided by gettext rather than musl.
+# In that case, we need to explicitly link with libintl.so.
+if get_option('libc') == 'musl'
+        if cc.has_function('dgettext', prefix : '''#include <libintl.h>''', args : '-D_GNU_SOURCE')
+                libintl = []
+        else
+                libintl = cc.find_library('intl')
+                if not cc.has_function('dgettext', prefix : '''#include <libintl.h>''', args : '-D_GNU_SOURCE',
+                                       dependencies : libintl)
+                        error('dgettext() not found.')
+                endif
+        endif
+else
+        # When building with glibc, we assume that libintl.h is provided by glibc.
+        libintl = []
+endif
+
 if get_option('libc') == 'musl'
         libcrypt = []
 else
