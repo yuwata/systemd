@@ -24,7 +24,7 @@ TEST(parse_sec) {
         assert_se(u == 5 * USEC_PER_SEC + 500 * USEC_PER_MSEC);
         assert_se(parse_sec(" 5.5s 0.5ms ", &u) >= 0);
         assert_se(u == 5 * USEC_PER_SEC + 500 * USEC_PER_MSEC + 500);
-        assert_se(parse_sec(" .22s ", &u) >= 0);
+        ASSERT_OK(parse_sec(" .22s ", &u));
         assert_se(u == 220 * USEC_PER_MSEC);
         assert_se(parse_sec(" .50y ", &u) >= 0);
         assert_se(u == USEC_PER_YEAR / 2);

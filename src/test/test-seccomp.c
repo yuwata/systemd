@@ -541,7 +541,7 @@ TEST(restrict_address_families) {
 }
 
 TEST(restrict_realtime) {
-        pid_t pid;
+        int r;
 
         if (!is_seccomp_available()) {
                 log_notice("Seccomp not available, skipping %s", __func__);
@@ -558,10 +558,8 @@ TEST(restrict_realtime) {
                 return;
         }
 
-        pid = fork();
-        assert_se(pid >= 0);
-
-        if (pid == 0) {
+        ASSERT_OK(r = safe_fork("(restrict-realtime)", FORK_LOG | FORK_WAIT, NULL));
+        if (r == 0) {
                 /* On some CI environments, the restriction may be already enabled. */
                 if (sched_setscheduler(0, SCHED_FIFO, &(struct sched_param) { .sched_priority = 1 }) < 0) {
                         log_full_errno(errno == EPERM ? LOG_DEBUG : LOG_WARNING, errno,
@@ -591,12 +589,10 @@ TEST(restrict_realtime) {
 
                 _exit(EXIT_SUCCESS);
         }
-
-        assert_se(wait_for_terminate_and_check("realtimeseccomp", pid, WAIT_LOG) == EXIT_SUCCESS);
 }
 
 TEST(memory_deny_write_execute_mmap) {
-        pid_t pid;
+        int r;
 
         if (!is_seccomp_available()) {
                 log_notice("Seccomp not available, skipping %s", __func__);
@@ -617,10 +613,8 @@ TEST(memory_deny_write_execute_mmap) {
         return;
 #endif
 
-        pid = fork();
-        assert_se(pid >= 0);
-
-        if (pid == 0) {
+        ASSERT_OK(r = safe_fork("(memory_deny_write_execute_mmap)", FORK_LOG | FORK_WAIT, NULL));
+        if (r == 0) {
                 void *p;
 
                 p = mmap(NULL, page_size(), PROT_WRITE|PROT_EXEC, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0);
@@ -636,7 +630,7 @@ TEST(memory_deny_write_execute_mmap) {
                 p = mmap(NULL, page_size(), PROT_WRITE|PROT_EXEC, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0);
 #if defined(__x86_64__) || defined(__i386__) || defined(__powerpc64__) || defined(__arm__) || defined(__aarch64__) || defined(__loongarch_lp64)
                 assert_se(p == MAP_FAILED);
-                assert_se(errno == EPERM);
+                ASSERT_ERROR_ERRNO(-1, EPERM);
 #endif
                 /* Depending on kernel, libseccomp, and glibc versions, other architectures
                  * might fail or not. Let's not assert success. */
@@ -649,8 +643,6 @@ TEST(memory_deny_write_execute_mmap) {
 
                 _exit(EXIT_SUCCESS);
         }
-
-        assert_se(wait_for_terminate_and_check("memoryseccomp-mmap", pid, WAIT_LOG) == EXIT_SUCCESS);
 }
 
 TEST(memory_deny_write_execute_shmat) {
