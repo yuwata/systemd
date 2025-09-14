@@ -1,0 +1,33 @@
+#!/bin/bash
+# SPDX-License-Identifier: LGPL-2.1-or-later
+set -eu
+
+MKOSI_DEBUG=${MKOSI_DEBUG:-0}
+NO_BUILD=${NO_BUILD:-0}
+
+if ((MKOSI_DEBUG)); then
+    set -x
+fi
+
+if [[ "${1:-}" == "build" ]] || ((NO_BUILD)); then
+    exit 0
+fi
+
+PKGSRC="$SRCDIR/mkosi/mkosi.images/build/mkosi.conf.d/alpine"
+
+(
+    . "$PKGSRC/systemd/APKBUILD"
+    mkosi-install $makedepends
+)
+
+(
+    . "$PKGSRC/dbus/APKBUILD"
+    mkosi-install $makedepends curl tar
+
+    mkdir -p /buildroot/src
+    pushd "/buildroot/src"
+    curl -o "${pkgname}-${pkgver}.tar.xz" "$source"
+    tar xf "${pkgname}-${pkgver}.tar.xz"
+    mv "${pkgname}-${pkgver}" "${pkgname}"
+    popd
+)

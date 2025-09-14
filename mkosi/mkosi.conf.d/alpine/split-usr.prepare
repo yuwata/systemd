@@ -1,0 +1,34 @@
+#!/bin/bash
+# SPDX-License-Identifier: LGPL-2.1-or-later
+set -e
+shopt -s nullglob
+
+if ((MKOSI_DEBUG)); then
+    set -x
+fi
+
+if [[ "${1:-}" == "build" ]] || ((NO_BUILD)); then
+    exit 0
+fi
+
+# Alpine still uses split-usr.
+
+LN=$(PATH=/usr/bin:/usr/sbin:/bin:/sbin command -v ln)
+for d in bin sbin lib/modules; do
+    mkdir -p "$BUILDROOT/usr/$d"
+    for i in "$BUILDROOT"/"$d"/*; do
+        link="$BUILDROOT/usr/$d/${i##*/}"
+        if [[ -e "$link" && ! -L "$link" ]]; then
+            continue
+        fi
+
+        "$LN" --force --relative --symbolic "$i" "$link";
+    done
+done
+
+# mkosi assumes kernel images are installed in /usr/lib/modules/$(uname -r)/, but alpine installs them in /boot/.
+for i in "$BUILDROOT"/boot/vmlinuz-*; do
+    variant=${i##*-}
+    release=$(cat "$BUILDROOT/usr/share/kernel/$variant/kernel.release")
+    cp "$i" "$BUILDROOT/usr/lib/modules/$release/."
+done

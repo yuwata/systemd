@@ -1,0 +1,13 @@
+# Maintainer: Yu Watanabe <watanabe.yu+github@gmail.com>
+pkgname=systemd-keys
+pkgver=1
+pkgrel=0
+pkgdesc="Public keys for systemd packages and repository index built in mkosi"
+url="https://systemd.io/"
+arch="all"
+license="MIT"
+options="!check" # No testsuite
+
+package() {
+        install -Dm644 "$srcdir"/*.rsa.pub -t "$pkgdir"/etc/apk/keys/
+}

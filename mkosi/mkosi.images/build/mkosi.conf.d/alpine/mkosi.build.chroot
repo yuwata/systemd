@@ -1,0 +1,136 @@
+#!/bin/bash
+# SPDX-License-Identifier: LGPL-2.1-or-later
+set -eu
+
+MKOSI_DEBUG=${MKOSI_DEBUG:-0}
+WITH_TESTS=${WITH_TESTS:-0}
+
+if ((MKOSI_DEBUG)); then
+    set -x
+fi
+
+if [[ "${1:-}" == "clangd" ]]; then
+    exit 0
+fi
+
+mkdir "$HOME/.abuild"
+cat >"$HOME/.abuild/abuild.conf" <<EOF
+PACKAGER="mkosi <mkosi@systemd.io>"
+CBUILD=$DISTRIBUTION_ARCHITECTURE
+EOF
+
+abuild-keygen \
+    $( ((MKOSI_DEBUG)) || echo "--quiet") \
+    -n --append
+
+# We cannot use -i option for abuild-keygen as we cannot call sudo/doas.
+cp "$HOME/.abuild"/*.rsa.pub /etc/apk/keys/.
+
+REPODEST="$BUILDDIR/alpine"
+rm -rf "$REPODEST"
+
+REPOSITORY="$REPODEST/systemd"
+REPOSITORY_ARCH="$REPOSITORY/$DISTRIBUTION_ARCHITECTURE"
+
+PKGSRC="$SRCDIR/mkosi/mkosi.images/build/mkosi.conf.d/alpine"
+TS="${SOURCE_DATE_EPOCH:-$(date +%s)}"
+
+TMPDIR="$(mktemp -d)"/systemd
+mkdir -p "$TMPDIR"
+
+: "Building systemd"
+
+# Before RC1, the version in meson.version ends with "~devel", e.g. "259-devel".
+# After RC1, the RC number prefixed with "~rc" is suffixed, e.g. "259~rc1".
+VERSION="$(sed -e 's/~.*//' meson.version)"
+SUFFIX="$(sed -e 's/.*~//; s/devel/rc0/' meson.version)"
+
+cp -r "$PKGSRC/systemd" "$TMPDIR/."
+sed -i \
+    -e "/^pkgver=/ s|=.*|=${VERSION}_${SUFFIX}|" \
+    -e "/^pkgrel=/ s|=.*|=$TS|" \
+    "$TMPDIR/systemd/APKBUILD"
+
+env \
+    APKBUILD="$TMPDIR/systemd/APKBUILD" \
+    srcdir="$SRCDIR" \
+    builddir="$BUILDDIR" \
+    REPODEST="$REPODEST" \
+    abuild -F \
+    $( ((MKOSI_DEBUG)) && echo "-v") \
+    validate \
+    build \
+    $( ((WITH_TESTS)) && echo "check") \
+    rootpkg
+
+: "Building systemd-keys"
+
+cp -r "$PKGSRC/systemd-keys" "$TMPDIR/."
+sed -i \
+    -e "/^pkgrel=/ s|=.*|=$TS|" \
+    "$TMPDIR/systemd-keys/APKBUILD"
+
+env \
+    APKBUILD="$TMPDIR/systemd-keys/APKBUILD" \
+    srcdir="$HOME/.abuild" \
+    REPODEST="$REPODEST" \
+    abuild -F \
+    $( ((MKOSI_DEBUG)) && echo "-v") \
+    validate \
+    build \
+    rootpkg
+
+: "Generating repository index"
+
+apk index \
+    $( ((MKOSI_DEBUG)) && echo "--verbose") \
+    --output="$REPOSITORY_ARCH/APKINDEX.tar.gz" \
+    "$REPOSITORY_ARCH"/*.apk
+
+abuild-sign \
+    --type=RSA256 \
+    "$REPOSITORY_ARCH/APKINDEX.tar.gz"
+
+: "Installing systemd-dev"
+
+apk \
+    --no-interactive \
+    --arch="$DISTRIBUTION_ARCHITECTURE" \
+    --repository="file://$REPOSITORY" \
+    $( ((MKOSI_DEBUG)) && echo "--verbose") \
+    add systemd-dev
+
+: "Building dbus with systemd support"
+
+cp -r "$PKGSRC/dbus" "$TMPDIR/."
+sed -i \
+    -e "/^pkgrel=/ s|=.*|=$TS|" \
+    "$TMPDIR/dbus/APKBUILD"
+
+env \
+    APKBUILD="$TMPDIR/dbus/APKBUILD" \
+    srcdir="/src/dbus" \
+    builddir="$REPODEST/dbus" \
+    REPODEST="$REPODEST" \
+    abuild -F \
+    $( ((MKOSI_DEBUG)) && echo "-v") \
+    validate \
+    mkusers \
+    build \
+    $( ((WITH_TESTS)) && echo "check") \
+    rootpkg
+
+: "Re-generating repository index"
+
+apk index \
+    $( ((MKOSI_DEBUG)) && echo "--verbose") \
+    --output="$REPOSITORY_ARCH/APKINDEX.tar.gz" \
+    "$REPOSITORY_ARCH"/*.apk
+
+abuild-sign \
+    --type=RSA256 \
+    "$REPOSITORY_ARCH/APKINDEX.tar.gz"
+
+: "Saving generated repository"
+
+cp -r "$REPOSITORY" "$PACKAGEDIR"

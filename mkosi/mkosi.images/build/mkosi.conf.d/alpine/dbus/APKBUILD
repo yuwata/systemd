@@ -1,0 +1,79 @@
+# Maintainer: Yu Watanabe <watanabe.yu+github@gmail.com>
+pkgname=dbus
+pkgver=1.16.2
+pkgrel=1
+pkgdesc="Freedesktop.org message bus system"
+url="https://www.freedesktop.org/Software/dbus"
+arch="all"
+license="AFL-2.1 OR GPL-2.0-or-later"
+makedepends="
+        expat-dev
+        glib-dev
+        libsm-dev
+        libx11-dev
+        meson
+        xmlto
+"
+pkggroups="messagebus"
+install="$pkgname.pre-install"
+triggers="$pkgname.trigger=/usr/share/dbus-1/system.d"
+subpackages="
+        $pkgname-dev
+        $pkgname-dbg
+        $pkgname-doc
+        $pkgname-libs
+        $pkgname-x11
+        $pkgname-daemon-launch-helper:launchhelper
+"
+source="https://dbus.freedesktop.org/releases/dbus/dbus-$pkgver.tar.xz"
+
+build() {
+        abuild-meson \
+                -Dsystem_socket=/run/dbus/system_bus_socket \
+                -Dlaunchd=disabled \
+                "$builddir" "$srcdir"
+        meson compile -C "$builddir"
+}
+
+check() {
+        meson test --print-errorlogs -C "$builddir"
+}
+
+package() {
+        DESTDIR="$pkgdir" meson install --no-rebuild -C "$builddir"
+
+        # can't install tmpfs
+        rm -r "$pkgdir"/run
+}
+
+libs() {
+        pkgdesc="D-BUS access libraries"
+        replaces="dbus"
+
+        amove usr/lib/lib*.so.*
+}
+
+x11() {
+        pkgdesc="X11 add-ons for D-BUS"
+        depends="dbus=$pkgver-r$pkgrel"
+
+        amove usr/bin/dbus-launch
+}
+
+launchhelper() {
+        pkgdesc="DBus SUID launch helper for autospawning"
+        install_if="$pkgname=$pkgver-r$pkgrel"
+
+        amove usr/libexec/dbus-daemon-launch-helper
+
+        # The following two lines does not work when building in mkosi chroot environment.
+        # Let's change users and groups by systemd-tmpfiles.
+        #chmod 4750 "$subpkgdir"/usr/libexec/dbus-daemon-launch-helper
+        #chown root:messagebus "$subpkgdir"/usr/libexec/dbus-daemon-launch-helper
+
+        install -Dm644 "$startdir"/dbus-daemon-launch-helper.conf "$pkgdir"/usr/lib/tmpfiles.d
+}
+
+sha512sums="
+5c26f52d85984bb9ae1dde8d7e73921eacbdf020a61ff15f00a4c240cb38a121553ee04bd66e62b28425ff9bc50f4f5e15135166573ac0888332a01a0db1faa2  dbus-1.16.2.tar.xz
+"
