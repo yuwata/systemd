@@ -1,0 +1,82 @@
+#!/bin/bash
+# SPDX-License-Identifier: LGPL-2.1-or-later
+set -eu
+
+MKOSI_DEBUG=${MKOSI_DEBUG:-0}
+WITH_TESTS=${WITH_TESTS:-0}
+
+if ((MKOSI_DEBUG)); then
+    set -x
+fi
+
+if [[ "${1:-}" == "clangd" ]]; then
+    exit 0
+fi
+
+mkdir "$HOME/.abuild"
+cat >"$HOME/.abuild/abuild.conf" <<EOF
+PACKAGER="mkosi <mkosi@localhost>"
+CBUILD=$DISTRIBUTION_ARCHITECTURE
+EOF
+
+abuild-keygen \
+    $( ((MKOSI_DEBUG)) || echo "--quiet") \
+    -n --append
+
+REPODEST="$BUILDDIR/postmarketos"
+rm -rf "$REPODEST"
+
+TMPDIR="$(mktemp -d)"/systemd
+mkdir -p "$TMPDIR"
+
+PKGSRC="$SRCDIR/mkosi/mkosi.images/build/mkosi.conf.d/postmarketos"
+TS="${SOURCE_DATE_EPOCH:-$(date +%s)}"
+
+: "Building systemd"
+
+# Before RC1, the version in meson.version ends with "~devel", e.g. "259-devel".
+# After RC1, the RC number prefixed with "~rc" is suffixed, e.g. "259~rc1".
+VERSION="$(sed -e 's/~.*//' meson.version)"
+SUFFIX="$(sed -e 's/.*~//; s/devel/rc0/' meson.version)"
+
+cp -r "$SRCDIR/pkg/$PKG_SUBDIR/extra-repos/systemd/systemd" "$TMPDIR/."
+cp "$SRCDIR/mkosi/mkosi.images/build/mkosi.conf.d/postmarketos/systemd/APKBUILD" "$TMPDIR/systemd/."
+sed -i \
+    -e "/^pkgver=/ s|=.*|=${VERSION}_${SUFFIX}|" \
+    -e "/^pkgrel=/ s|=.*|=$TS|" \
+    "$TMPDIR/systemd/APKBUILD"
+
+env \
+    APKBUILD="$TMPDIR/systemd/APKBUILD" \
+    srcdir="$SRCDIR" \
+    builddir="$BUILDDIR" \
+    REPODEST="$REPODEST" \
+    abuild -F \
+    $( ((MKOSI_DEBUG)) && echo "-v") \
+    validate \
+    build \
+    $( ((WITH_TESTS)) && echo "check") \
+    rootpkg
+
+if false; then
+: "Building systemd-keys"
+
+cp -r "$PKGSRC/systemd-keys" "$TMPDIR/."
+sed -i \
+    -e "/^pkgrel=/ s|=.*|=$TS|" \
+    "$TMPDIR/systemd-keys/APKBUILD"
+
+env \
+    APKBUILD="$TMPDIR/systemd-keys/APKBUILD" \
+    srcdir="$HOME/.abuild" \
+    REPODEST="$REPODEST" \
+    abuild -F \
+    $( ((MKOSI_DEBUG)) && echo "-v") \
+    validate \
+    build \
+    rootpkg
+fi
+
+: "Saving generated repository"
+
+cp -r "$REPODEST/systemd/$DISTRIBUTION_ARCHITECTURE"/*.apk "$PACKAGEDIR"
