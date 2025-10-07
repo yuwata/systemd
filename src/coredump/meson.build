@@ -13,6 +13,8 @@ systemd_coredump_sources = files(
         'coredump-receive.c',
         'coredump-send.c',
         'coredump-submit.c',
+        'coredumpd.c',
+        'coredumpd-worker.c',
 )
 systemd_coredump_extract_sources = files(
         'coredump-vacuum.c',
@@ -55,6 +57,10 @@ executables += [
                 'type' : 'manual',
         },
 ]
+
+install_symlink('systemd-coredumpd',
+                pointing_to : 'systemd-coredump',
+                install_dir : libexecdir)
 
 if install_sysconfdir_samples
         install_data('coredump.conf',

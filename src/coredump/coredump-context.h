@@ -49,11 +49,13 @@ struct CoredumpContext {
         uid_t uid;
         gid_t gid;
         int signo;
+        usec_t timestamp;
         uint64_t rlimit;
         unsigned dumpable;
         bool got_pidfd;
         bool is_pid1;
         bool is_journald;
+        bool by_kernel_socket;
         int mount_tree_fd;
         struct iovec_wrapper iovw;
         const char *meta[_META_MAX]; /* These point into memory owned by iovw. */
@@ -75,3 +77,4 @@ int coredump_context_acquire_mount_tree_fd(const CoredumpConfig *config, Coredum
 int coredump_context_parse_iovw(CoredumpContext *context);
 int coredump_context_parse_from_argv(CoredumpContext *context, int argc, char **argv);
 int coredump_context_parse_from_procfs(CoredumpContext *context);
+int coredump_context_parse_from_socket(CoredumpContext *context, int fd);

@@ -8,6 +8,7 @@
 #include <unistd.h>
 
 #include "sd-bus.h"
+#include "sd-event.h"
 #include "sd-id128.h"
 #include "sd-journal.h"
 #include "sd-messages.h"
@@ -36,6 +37,7 @@
 #include "mkdir-label.h"
 #include "namespace-util.h"
 #include "path-util.h"
+#include "socket-util.h"
 #include "stat-util.h"
 #include "string-util.h"
 #include "tmpfile-util.h"
@@ -229,6 +231,89 @@ static int fix_permissions_and_link(
         return 0;
 }
 
+typedef struct {
+        int fd;
+        uint64_t max_size;
+        uint64_t written_size;
+        bool truncated;
+} Data;
+
+static int on_reading_coredump(sd_event_source *s, int fd, uint32_t revents, void *userdata) {
+        Data *data = ASSERT_PTR(userdata);
+
+        assert(fd >= 0);
+        assert(data->fd >= 0);
+
+        if (!FLAGS_SET(revents, EPOLLIN))
+                return 0;
+
+        ssize_t n = next_datagram_size_fd(fd);
+        if (n < 0) {
+                if (ERRNO_IS_NEG_TRANSIENT(n))
+                        return 0;
+
+                return sd_event_exit(sd_event_source_get_event(s),
+                                     log_debug_errno(n, "Failed to determine next message size: %m"));
+        }
+
+        if (n == 0) /* done */
+                return sd_event_exit(sd_event_source_get_event(s), 0);
+
+        _cleanup_free_ uint8_t *buf = new(uint8_t, n);
+        if (!buf)
+                return log_oom_warning();
+
+        n = recv(fd, buf, n, /* flags = */ 0);
+        if (n < 0) {
+                if (ERRNO_IS_TRANSIENT(errno))
+                        return 0;
+
+                return sd_event_exit(sd_event_source_get_event(s),
+                                     log_debug_errno(errno, "Failed to receive coredump: %m"));
+        }
+
+        uint64_t m = MIN(data->max_size - data->written_size, (uint64_t) n);
+        ssize_t k = write(data->fd, buf, m);
+        if (k < 0)
+                return sd_event_exit(sd_event_source_get_event(s),
+                                     log_debug_errno(errno, "Failed to write coredump: %m"));
+        data->written_size += k;
+
+        if (k < n) { /* Partitally written or there is no space to write. */
+                data->truncated = true;
+                return sd_event_exit(sd_event_source_get_event(s), 0);
+        }
+
+        return 0;
+}
+
+static int copy_bytes_from_socket(int input_fd, int fd, uint64_t max_size) {
+        int r;
+
+        assert(input_fd >= 0);
+        assert(fd >= 0);
+
+        _cleanup_(sd_event_unrefp) sd_event *e = NULL;
+        r = sd_event_new(&e);
+        if (r < 0)
+                return log_debug_errno(r, "Failed to allocate sd-event object: %m");
+
+        Data data = {
+                .fd = fd,
+                .max_size = max_size,
+        };
+
+        r = sd_event_add_io(e, NULL, input_fd, EPOLLIN, on_reading_coredump, &data);
+        if (r < 0)
+                return log_debug_errno(r, "Failed to add IO event source for kernel coredump socket: %m");
+
+        r = sd_event_loop(e);
+        if (r < 0)
+                return log_debug_errno(r, "Event loop for processing coredump event failed: %m");
+
+        return data.truncated;
+}
+
 static int save_external_coredump(
                 const CoredumpConfig *config,
                 const CoredumpContext *context,
@@ -342,10 +427,13 @@ static int save_external_coredump(
                 log_debug("Limiting core file size to %" PRIu64 " bytes due to cgroup and/or filesystem limits.", max_size);
         }
 
-        r = copy_bytes(input_fd, fd, max_size, 0);
+        if (context->by_kernel_socket)
+                r = copy_bytes_from_socket(input_fd, fd, max_size);
+        else
+                r = copy_bytes(input_fd, fd, max_size, 0);
         if (r < 0)
                 return log_error_errno(r, "Cannot store coredump of %s (%s): %m",
-                                context->meta[META_ARGV_PID], context->meta[META_COMM]);
+                                       context->meta[META_ARGV_PID], context->meta[META_COMM]);
         truncated = r == 1;
 
         bool allow_user = grant_user_access(fd, context) > 0;

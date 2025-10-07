@@ -10,18 +10,22 @@
 #include "dirent-util.h"
 #include "fd-util.h"
 #include "fs-util.h"
+#include "hostname-setup.h"
 #include "iovec-util.h"
 #include "iovec-wrapper.h"
 #include "log.h"
 #include "memstream-util.h"
 #include "namespace-util.h"
 #include "parse-util.h"
+#include "pidfd-util.h"
 #include "process-util.h"
+#include "rlimit-util.h"
 #include "signal-util.h"
 #include "socket-util.h"
 #include "special.h"
 #include "string-table.h"
 #include "string-util.h"
+#include "time-util.h"
 #include "user-util.h"
 
 static const char * const metadata_field_table[_META_MAX] = {
@@ -535,4 +539,138 @@ int coredump_context_parse_from_procfs(CoredumpContext *context) {
 
         /* We successfully acquired all metadata. */
         return coredump_context_parse_iovw(context);
+}
+
+static int coredump_context_parse_from_pidfd(CoredumpContext *context) {
+        int r;
+
+        assert(context);
+        assert(context->pidref.fd >= 0);
+
+        struct pidfd_info info = {
+                .mask = PIDFD_INFO_EXIT | PIDFD_INFO_COREDUMP,
+        };
+
+        r = pidfd_get_info(context->pidref.fd, &info);
+        if (r < 0)
+                return log_debug_errno(r, "ioctl(PIDFD_GET_INFO) failed: %m");
+
+        /* basic verifications */
+        if (!FLAGS_SET(info.mask, PIDFD_INFO_PID | PIDFD_INFO_CREDS | PIDFD_INFO_COREDUMP))
+                return log_debug_errno(SYNTHETIC_ERRNO(EINVAL),
+                                       "ioctl(PIDFD_GET_INFO) does not provide necessary information.");
+
+        if (!FLAGS_SET(info.coredump_mask, PIDFD_COREDUMPED))
+                return log_debug_errno(SYNTHETIC_ERRNO(EINVAL),
+                                       "The process ["PID_FMT"] not crashed.", context->pidref.pid);
+
+        if (FLAGS_SET(info.coredump_mask, PIDFD_COREDUMP_SKIP))
+                return log_debug_errno(SYNTHETIC_ERRNO(ENODATA),
+                                       "Coredump generation for process ["PID_FMT"] is skipped.", context->pidref.pid);
+
+        r = iovw_put_string_fieldf(&context->iovw, "COREDUMP_PID=", PID_FMT, context->pidref.pid);
+        if (r < 0)
+                return r;
+
+        r = iovw_put_string_fieldf(&context->iovw, "COREDUMP_UID=", UID_FMT, info.ruid);
+        if (r < 0)
+                return r;
+
+        r = iovw_put_string_fieldf(&context->iovw, "COREDUMP_GID=", UID_FMT, info.rgid);
+        if (r < 0)
+                return r;
+
+        /* info.exit_code consists of signal at lower 8 bits and exit state at higher 8bits */
+        r = iovw_put_string_fieldf(&context->iovw, "COREDUMP_SIGNAL=", "%i",
+                                   FLAGS_SET(info.mask, PIDFD_INFO_EXIT) ? info.exit_code & 0xff : SIGABRT);
+        if (r < 0)
+                return r;
+
+        r = iovw_put_string_fieldf(&context->iovw, "COREDUMP_TIMESTAMP=", USEC_FMT, context->timestamp);
+        if (r < 0)
+                return r;
+
+        struct rlimit rl;
+        r = pid_getrlimit(info.pid, RLIMIT_CORE, &rl);
+        if (r < 0)
+                return r;
+
+        r = iovw_put_string_fieldf(&context->iovw, "COREDUMP_RLIMIT=", RLIM_FMT, rl.rlim_cur);
+        if (r < 0)
+                return r;
+
+        /* FIXME: enter UTS namespace */
+        char *t = gethostname_malloc();
+        if (t)
+                (void) iovw_put_string_field_free(&context->iovw, "COREDUMP_HOSTNAME=", TAKE_PTR(t));
+
+        (void) iovw_put_string_fieldf(&context->iovw, "COREDUMP_DUMPABLE=", "%i",
+                                      FLAGS_SET(info.coredump_mask, PIDFD_COREDUMP_USER) ? SUID_DUMP_USER : SUID_DUMP_SAFE);
+
+        context->got_pidfd = true;
+        (void) iovw_put_string_field(&context->iovw, "COREDUMP_BY_PIDFD=", "1");
+
+        return coredump_context_parse_from_procfs(context);
+}
+
+static void coredump_context_acquire_timestamp(CoredumpContext *context, int fd) {
+        int r;
+
+        assert(context);
+        assert(fd >= 0);
+
+        r = setsockopt_int(fd, SOL_SOCKET, SO_TIMESTAMP, true);
+        if (r < 0) {
+                log_debug_errno(r, "Failed to enable SO_TIMESTAMP, ignoring: %m");
+                goto fallback;
+        }
+
+        /* This needs to be initialized with zero. See #20741.
+         * The issue is fixed on glibc-2.35 (8fba672472ae0055387e9315fc2eddfa6775ca79). */
+        CMSG_BUFFER_TYPE(CMSG_SPACE_TIMEVAL) control = {};
+        struct msghdr msg = {
+                .msg_control = &control,
+                .msg_controllen = sizeof(control),
+        };
+
+        ssize_t n = recvmsg(fd, &msg, MSG_PEEK);
+        if (n < 0) {
+                log_debug_errno(errno, "recvmsg(MSG_PEEK) failed, ignoring: %m");
+                goto fallback;
+        }
+
+        struct timeval *tv = CMSG_FIND_AND_COPY_DATA(&msg, SOL_SOCKET, SCM_TIMESTAMP, struct timeval);
+        if (!tv) {
+                log_debug("Message header does not contain SCM_TIMESTAMP, ignoring.");
+                goto fallback;
+        }
+
+        context->timestamp = timeval_load(tv);
+        return;
+
+fallback:
+        context->timestamp = now(CLOCK_REALTIME);
+}
+
+int coredump_context_parse_from_socket(CoredumpContext *context, int fd) {
+        int r;
+
+        assert(context);
+        assert(fd >= 0);
+
+        coredump_context_acquire_timestamp(context, fd);
+
+        r = getpeerpidfd(fd);
+        if (r < 0)
+                return log_debug_errno(r, "Failed to get peer pidfd: %m");
+
+        r = pidref_set_pidfd_consume(&context->pidref, r);
+        if (r < 0)
+                return log_debug_errno(r, "Failed to set pidfd: %m");
+
+        r = coredump_context_parse_from_pidfd(context);
+        if (r < 0)
+                return log_debug_errno(r, "Failed to obtain coredump metadata: %m");
+
+        return 0;
 }

@@ -90,7 +90,7 @@ int coredump_send_or_submit(const CoredumpConfig *config, CoredumpContext *conte
         (void) iovw_put_string_field(&context->iovw, "MESSAGE_ID=", SD_MESSAGE_COREDUMP_STR);
         (void) iovw_put_string_field(&context->iovw, "PRIORITY=", STRINGIFY(LOG_CRIT));
 
-        if (context->is_journald || context->is_pid1)
+        if (context->is_journald || context->is_pid1 || context->by_kernel_socket)
                 return coredump_submit(config, context, input_fd);
 
         return coredump_send(context, input_fd);

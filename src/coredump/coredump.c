@@ -2,10 +2,12 @@
 
 #include "sd-daemon.h"
 
+#include "argv-util.h"
 #include "coredump-backtrace.h"
 #include "coredump-kernel-helper.h"
 #include "coredump-receive.h"
 #include "coredump-util.h"
+#include "coredumpd.h"
 #include "log.h"
 #include "main-func.h"
 #include "string-util.h"
@@ -22,6 +24,9 @@ static int run(int argc, char *argv[]) {
 
         /* Make sure we never enter a loop. */
         (void) set_dumpable(SUID_DUMP_DISABLE);
+
+        if (invoked_as(argv, "coredumpd"))
+                return run_coredumpd(argc, argv);
 
         r = sd_listen_fds(false);
         if (r < 0)
