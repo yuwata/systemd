@@ -45,23 +45,33 @@ int coredump_kernel_helper(int argc, char *argv[]) {
                 /* OK, now we know it's not the journal, hence we can make use of it now. */
                 log_set_target_and_open(LOG_TARGET_JOURNAL_OR_KMSG);
 
+        return coredump_send_or_submit(&config, &context, STDIN_FILENO);
+}
+
+int coredump_send_or_submit(const CoredumpConfig *config, CoredumpContext *context, int input_fd) {
+        int r;
+
+        assert(config);
+        assert(context);
+        assert(input_fd >= 0);
+
         /* Log minimal metadata now, so it is not lost if the system is about to shut down. */
         log_info("Process %s (%s) of user %s terminated abnormally with signal %s/%s, processing...",
-                 context.meta[META_ARGV_PID], context.meta[META_COMM],
-                 context.meta[META_ARGV_UID], context.meta[META_ARGV_SIGNAL],
-                 signal_to_string(context.signo));
+                 context->meta[META_ARGV_PID], context->meta[META_COMM],
+                 context->meta[META_ARGV_UID], context->meta[META_ARGV_SIGNAL],
+                 signal_to_string(context->signo));
 
-        r = pidref_in_same_namespace(/* pid1 = */ NULL, &context.pidref, NAMESPACE_PID);
+        r = pidref_in_same_namespace(/* pid1 = */ NULL, &context->pidref, NAMESPACE_PID);
         if (r < 0)
                 log_debug_errno(r, "Failed to check pidns of crashing process, ignoring: %m");
         if (r == 0) {
                 /* If this fails, fallback to the old behavior so that
                  * there is still some record of the crash. */
-                r = coredump_send_to_container(&context, STDIN_FILENO);
+                r = coredump_send_to_container(context, input_fd);
                 if (r >= 0)
                         return 0;
 
-                r = coredump_context_acquire_mount_tree_fd(&config, &context);
+                r = coredump_context_acquire_mount_tree_fd(config, context);
                 if (r < 0)
                         log_warning_errno(r, "Failed to access the mount tree of a container, ignoring: %m");
         }
@@ -72,16 +82,16 @@ int coredump_kernel_helper(int argc, char *argv[]) {
          * FIXME: maybe we should disable coredumps generation from the beginning and
          * re-enable it only when we know it's either safe (i.e. we're not running OOM) or
          * it's not PID 1 ? */
-        if (context.is_pid1) {
+        if (context->is_pid1) {
                 log_notice("Due to PID 1 having crashed coredump collection will now be turned off.");
                 disable_coredumps();
         }
 
-        (void) iovw_put_string_field(&context.iovw, "MESSAGE_ID=", SD_MESSAGE_COREDUMP_STR);
-        (void) iovw_put_string_field(&context.iovw, "PRIORITY=", STRINGIFY(LOG_CRIT));
+        (void) iovw_put_string_field(&context->iovw, "MESSAGE_ID=", SD_MESSAGE_COREDUMP_STR);
+        (void) iovw_put_string_field(&context->iovw, "PRIORITY=", STRINGIFY(LOG_CRIT));
 
-        if (context.is_journald || context.is_pid1)
-                return coredump_submit(&config, &context, STDIN_FILENO);
+        if (context->is_journald || context->is_pid1)
+                return coredump_submit(config, context, input_fd);
 
-        return coredump_send(&context, STDIN_FILENO);
+        return coredump_send(context, input_fd);
 }
