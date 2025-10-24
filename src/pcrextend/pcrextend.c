@@ -123,11 +123,11 @@ static int parse_argv(int argc, char *argv[]) {
                 case ARG_BANK: {
                         const EVP_MD *implementation;
 
-                        implementation = EVP_get_digestbyname(optarg);
+                        implementation = sym_EVP_get_digestbyname(optarg);
                         if (!implementation)
                                 return log_error_errno(SYNTHETIC_ERRNO(EINVAL), "Unknown bank '%s', refusing.", optarg);
 
-                        if (strv_extend(&arg_banks, EVP_MD_name(implementation)) < 0)
+                        if (strv_extend(&arg_banks, sym_EVP_MD_get0_name(implementation)) < 0)
                                 return log_oom();
 
                         break;

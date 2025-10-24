@@ -60,7 +60,7 @@ executables += [
                 'sources' : systemd_pull_sources,
                 'objects' : ['systemd-importd'],
                 'dependencies' : common_deps + [
-                        libopenssl,
+                        libopenssl_cflags,
                 ],
         },
         libexec_template + {

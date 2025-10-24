@@ -2859,11 +2859,11 @@ int tpm2_get_good_pcr_banks_strv(
                 if (!salg)
                         return log_debug_errno(SYNTHETIC_ERRNO(ENOTRECOVERABLE), "TPM2 operates with unknown PCR algorithm, can't measure.");
 
-                implementation = EVP_get_digestbyname(salg);
+                implementation = sym_EVP_get_digestbyname(salg);
                 if (!implementation)
                         return log_debug_errno(SYNTHETIC_ERRNO(ENOTRECOVERABLE), "TPM2 operates with unsupported PCR algorithm, can't measure.");
 
-                n = strdup(ASSERT_PTR(EVP_MD_name(implementation)));
+                n = strdup(ASSERT_PTR(sym_EVP_MD_get0_name(implementation)));
                 if (!n)
                         return log_oom_debug();
 
@@ -3572,7 +3572,7 @@ int tpm2_policy_signed_hmac_sha256(
         unsigned hmac_signature_size = sizeof(hmac_signature);
 
         /* And sign this with our key */
-        if (!HMAC(EVP_sha256(),
+        if (!sym_HMAC(sym_EVP_sha256(),
                   hmac_key->iov_base,
                   hmac_key->iov_len,
                   digest_to_sign.buffer,
@@ -4318,7 +4318,7 @@ int tpm2_tpm2b_public_from_openssl_pkey(const EVP_PKEY *pkey, TPM2B_PUBLIC *ret)
                 },
         };
 
-        int key_id = EVP_PKEY_get_id(pkey);
+        int key_id = sym_EVP_PKEY_get_id(pkey);
         switch (key_id) {
         case EVP_PKEY_EC: {
                 public.type = TPM2_ALG_ECC;
@@ -4417,7 +4417,7 @@ int tpm2_tpm2b_public_to_fingerprint(
                 return r;
 
         /* Hardcode fingerprint to SHA256 */
-        return pubkey_fingerprint(pkey, EVP_sha256(), ret_fingerprint, ret_fingerprint_size);
+        return pubkey_fingerprint(pkey, sym_EVP_sha256(), ret_fingerprint, ret_fingerprint_size);
 #else
         return log_debug_errno(SYNTHETIC_ERRNO(EOPNOTSUPP), "OpenSSL support is disabled.");
 #endif
@@ -6551,12 +6551,12 @@ static int tpm2_userspace_log(
                 const char *a;
 
                 assert_se(a = tpm2_hash_alg_to_string(values->digests[i].hashAlg));
-                assert_se(implementation = EVP_get_digestbyname(a));
+                assert_se(implementation = sym_EVP_get_digestbyname(a));
 
                 r = sd_json_variant_append_arraybo(
                                 &array,
                                 SD_JSON_BUILD_PAIR_STRING("hashAlg", a),
-                                SD_JSON_BUILD_PAIR("digest", SD_JSON_BUILD_HEX(&values->digests[i].digest, EVP_MD_size(implementation))));
+                                SD_JSON_BUILD_PAIR("digest", SD_JSON_BUILD_HEX(&values->digests[i].digest, sym_EVP_MD_get_size(implementation))));
                 if (r < 0)
                         return log_debug_errno(r, "Failed to append digest object to JSON array: %m");
         }
@@ -6632,15 +6632,15 @@ int tpm2_pcr_extend_bytes(
                 const EVP_MD *implementation;
                 int id;
 
-                assert_se(implementation = EVP_get_digestbyname(*bank));
+                assert_se(implementation = sym_EVP_get_digestbyname(*bank));
 
                 if (values.count >= ELEMENTSOF(values.digests))
                         return log_debug_errno(SYNTHETIC_ERRNO(E2BIG), "Too many banks selected.");
 
-                if ((size_t) EVP_MD_size(implementation) > sizeof(values.digests[values.count].digest))
+                if ((size_t) sym_EVP_MD_get_size(implementation) > sizeof(values.digests[values.count].digest))
                         return log_debug_errno(SYNTHETIC_ERRNO(E2BIG), "Hash result too large for TPM2.");
 
-                id = tpm2_hash_alg_from_string(EVP_MD_name(implementation));
+                id = tpm2_hash_alg_from_string(sym_EVP_MD_get0_name(implementation));
                 if (id < 0)
                         return log_debug_errno(id, "Can't map hash name to TPM2.");
 
@@ -6653,9 +6653,9 @@ int tpm2_pcr_extend_bytes(
                  * some unrelated purpose, who knows). Hence we instead measure an HMAC signature of a
                  * private non-secret string instead. */
                 if (iovec_is_set(secret) > 0) {
-                        if (!HMAC(implementation, secret->iov_base, secret->iov_len, data->iov_base, data->iov_len, (unsigned char*) &values.digests[values.count].digest, NULL))
+                        if (!sym_HMAC(implementation, secret->iov_base, secret->iov_len, data->iov_base, data->iov_len, (unsigned char*) &values.digests[values.count].digest, NULL))
                                 return log_debug_errno(SYNTHETIC_ERRNO(ENOTRECOVERABLE), "Failed to calculate HMAC of data to measure.");
-                } else if (EVP_Digest(data->iov_base, data->iov_len, (unsigned char*) &values.digests[values.count].digest, NULL, implementation, NULL) != 1)
+                } else if (sym_EVP_Digest(data->iov_base, data->iov_len, (unsigned char*) &values.digests[values.count].digest, NULL, implementation, NULL) != 1)
                         return log_debug_errno(SYNTHETIC_ERRNO(ENOTRECOVERABLE), "Failed to hash data to measure.");
 
                 values.count++;

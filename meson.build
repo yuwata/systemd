@@ -1335,6 +1335,7 @@ libopenssl = dependency('openssl',
                         version : '>= 3.0.0',
                         required : get_option('openssl'))
 conf.set10('HAVE_OPENSSL', libopenssl.found())
+libopenssl_cflags = libopenssl.partial_dependency(includes: true, compile_args: true)
 
 libp11kit = dependency('p11-kit-1',
                        version : '>= 0.23.3',

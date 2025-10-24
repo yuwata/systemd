@@ -23,7 +23,7 @@ executables += [
                 'dependencies' : [
                         libcryptsetup_cflags,
                         libdl,
-                        libopenssl,
+                        libopenssl_cflags,
                         libp11kit_cflags,
                 ],
         },
