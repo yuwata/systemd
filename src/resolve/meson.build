@@ -67,7 +67,7 @@ endif
 
 resolve_common_template = {
         'dependencies' : [
-                libopenssl,
+                libopenssl_cflags,
                 libm,
                 threads,
         ],

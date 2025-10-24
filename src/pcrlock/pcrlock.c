@@ -1312,7 +1312,7 @@ static int event_log_calculate_pcrs(EventLog *el) {
                 const char *a;
 
                 assert_se(a = tpm2_hash_alg_to_string(el->algorithms[i]));
-                assert_se(md = EVP_get_digestbyname(a));
+                assert_se(md = sym_EVP_get_digestbyname(a));
 
                 el->mds[i] = md;
         }
@@ -1320,7 +1320,7 @@ static int event_log_calculate_pcrs(EventLog *el) {
         for (uint32_t pcr = 0; pcr < TPM2_PCRS_MAX; pcr++)
                 for (size_t i = 0; i < el->n_algorithms; i++) {
                         EventLogRegisterBank *b = el->registers[pcr].banks + i;
-                        event_log_initial_pcr_state(el, pcr, EVP_MD_size(el->mds[i]), &b->calculated);
+                        event_log_initial_pcr_state(el, pcr, sym_EVP_MD_get_size(el->mds[i]), &b->calculated);
                 }
 
         FOREACH_ARRAY(rr, el->records, el->n_records) {
@@ -1341,20 +1341,20 @@ static int event_log_calculate_pcrs(EventLog *el) {
 
                         reg_b = reg->banks + i;
 
-                        mc = EVP_MD_CTX_new();
+                        mc = sym_EVP_MD_CTX_new();
                         if (!mc)
                                 return log_oom();
 
-                        if (EVP_DigestInit_ex(mc, el->mds[i], NULL) != 1)
+                        if (sym_EVP_DigestInit_ex(mc, el->mds[i], NULL) != 1)
                                 return log_error_errno(SYNTHETIC_ERRNO(EINVAL), "Failed to initialize %s message digest context.", n);
 
-                        if (EVP_DigestUpdate(mc, reg_b->calculated.buffer, reg_b->calculated.size) != 1)
+                        if (sym_EVP_DigestUpdate(mc, reg_b->calculated.buffer, reg_b->calculated.size) != 1)
                                 return log_error_errno(SYNTHETIC_ERRNO(EINVAL), "Failed to run digest.");
 
-                        if (EVP_DigestUpdate(mc, rec_b->hash.buffer, rec_b->hash.size) != 1)
+                        if (sym_EVP_DigestUpdate(mc, rec_b->hash.buffer, rec_b->hash.size) != 1)
                                 return log_error_errno(SYNTHETIC_ERRNO(EINVAL), "Failed to run digest.");
 
-                        if (EVP_DigestFinal_ex(mc, reg_b->calculated.buffer, &sz) != 1)
+                        if (sym_EVP_DigestFinal_ex(mc, reg_b->calculated.buffer, &sz) != 1)
                                 return log_error_errno(SYNTHETIC_ERRNO(EINVAL), "Failed to finalize hash context.");
 
                         assert(sz == reg_b->calculated.size);
@@ -1443,7 +1443,7 @@ static int event_log_record_validate_hash_firmware(
                 strict = false;
         }
 
-        int mdsz = EVP_MD_size(md);
+        int mdsz = sym_EVP_MD_get_size(md);
         assert(mdsz > 0);
         assert((size_t) mdsz <= sizeof_field(TPM2B_DIGEST, buffer));
 
@@ -1453,13 +1453,13 @@ static int event_log_record_validate_hash_firmware(
 
         unsigned dsz = mdsz;
 
-        if (EVP_Digest(hdata, hsz, payload_hash.buffer, &dsz, md, NULL) != 1)
+        if (sym_EVP_Digest(hdata, hsz, payload_hash.buffer, &dsz, md, NULL) != 1)
                 return log_error_errno(SYNTHETIC_ERRNO(EINVAL), "Failed to calculate event payload hash.");
         assert(dsz == (unsigned) mdsz);
 
         /* If this didn't match then let's try the alternative format here, if we have one, and check things then. */
         if (memcmp_nn(bank->hash.buffer, bank->hash.size, payload_hash.buffer, payload_hash.size) != 0 && hdata_alternative) {
-                if (EVP_Digest(hdata_alternative, hsz_alternative, payload_hash.buffer, &dsz, md, NULL) != 1)
+                if (sym_EVP_Digest(hdata_alternative, hsz_alternative, payload_hash.buffer, &dsz, md, NULL) != 1)
                         return log_error_errno(SYNTHETIC_ERRNO(EINVAL), "Failed to calculate event payload hash.");
                 assert(dsz == (unsigned) mdsz);
         }
@@ -1503,7 +1503,7 @@ static int event_log_record_validate_hash_userspace(
         assert(sd_json_variant_is_string(js));
         s = sd_json_variant_string(js);
 
-        mdsz = EVP_MD_size(md);
+        mdsz = sym_EVP_MD_get_size(md);
         assert(mdsz > 0);
 
         payload_hash_size = mdsz;
@@ -1511,7 +1511,7 @@ static int event_log_record_validate_hash_userspace(
         if (!payload_hash)
                 return log_oom();
 
-        if (EVP_Digest(s, strlen(s), payload_hash, &payload_hash_size, md, NULL) != 1)
+        if (sym_EVP_Digest(s, strlen(s), payload_hash, &payload_hash_size, md, NULL) != 1)
                 return log_error_errno(SYNTHETIC_ERRNO(EINVAL), "Failed to calculate event payload hash.");
 
         assert((int) payload_hash_size == mdsz);
@@ -1537,7 +1537,7 @@ static int event_log_validate_record_hashes(EventLog *el) {
                         const char *a;
 
                         assert_se(a = tpm2_hash_alg_to_string(bank->algorithm));
-                        assert_se(md = EVP_get_digestbyname(a));
+                        assert_se(md = sym_EVP_get_digestbyname(a));
 
                         r = event_log_record_validate_hash_firmware(*rr, bank, md);
                         if (r < 0)
@@ -2718,8 +2718,8 @@ static int make_pcrlock_record(
                 const char *a;
 
                 assert_se(a = tpm2_hash_alg_to_string(*pa));
-                assert_se(md = EVP_get_digestbyname(a));
-                hash_ssize = EVP_MD_size(md);
+                assert_se(md = sym_EVP_get_digestbyname(a));
+                hash_ssize = sym_EVP_MD_get_size(md);
                 assert(hash_ssize > 0);
                 hash_usize = hash_ssize;
 
@@ -2727,7 +2727,7 @@ static int make_pcrlock_record(
                 if (!hash)
                         return log_oom();
 
-                if (EVP_Digest(data, data_size, hash, &hash_usize, md, NULL) != 1)
+                if (sym_EVP_Digest(data, data_size, hash, &hash_usize, md, NULL) != 1)
                         return log_error_errno(SYNTHETIC_ERRNO(ENOTRECOVERABLE), "Failed to hash data with algorithm '%s'.", a);
 
                 r = sd_json_variant_append_arraybo(
@@ -2751,7 +2751,7 @@ static void evp_md_ctx_free_all(EVP_MD_CTX *(*md)[TPM2_N_HASH_ALGORITHMS]) {
         assert(md);
         FOREACH_ARRAY(alg, *md, TPM2_N_HASH_ALGORITHMS)
                 if (*alg)
-                        EVP_MD_CTX_free(*alg);
+                        sym_EVP_MD_CTX_free(*alg);
 }
 
 static int make_pcrlock_record_from_stream(
@@ -2771,13 +2771,13 @@ static int make_pcrlock_record_from_stream(
                 const EVP_MD *md;
 
                 assert_se(a = tpm2_hash_alg_to_string(tpm2_hash_algorithms[i]));
-                assert_se(md = EVP_get_digestbyname(a));
+                assert_se(md = sym_EVP_get_digestbyname(a));
 
-                mdctx[i] = EVP_MD_CTX_new();
+                mdctx[i] = sym_EVP_MD_CTX_new();
                 if (!mdctx[i])
                         return log_oom();
 
-                if (EVP_DigestInit_ex(mdctx[i], md, NULL) != 1)
+                if (sym_EVP_DigestInit_ex(mdctx[i], md, NULL) != 1)
                         return log_error_errno(SYNTHETIC_ERRNO(ENOTRECOVERABLE),
                                                "Failed to initialize message digest for %s.", a);
         }
@@ -2793,7 +2793,7 @@ static int make_pcrlock_record_from_stream(
                         break;
 
                 for (size_t i = 0; i < TPM2_N_HASH_ALGORITHMS; i++)
-                        if (EVP_DigestUpdate(mdctx[i], buffer, n) != 1)
+                        if (sym_EVP_DigestUpdate(mdctx[i], buffer, n) != 1)
                                 return log_error_errno(SYNTHETIC_ERRNO(ENOTRECOVERABLE), "Unable to hash data.");
         }
 
@@ -2803,12 +2803,12 @@ static int make_pcrlock_record_from_stream(
                 unsigned hash_usize;
 
                 assert_se(a = tpm2_hash_alg_to_string(tpm2_hash_algorithms[i]));
-                hash_ssize = EVP_MD_CTX_size(mdctx[i]);
+                hash_ssize = sym_EVP_MD_CTX_get_size(mdctx[i]);
                 assert(hash_ssize > 0 && hash_ssize <= EVP_MAX_MD_SIZE);
                 hash_usize = hash_ssize;
                 unsigned char hash[hash_usize];
 
-                if (EVP_DigestFinal_ex(mdctx[i], hash, &hash_usize) != 1)
+                if (sym_EVP_DigestFinal_ex(mdctx[i], hash, &hash_usize) != 1)
                         return log_error_errno(SYNTHETIC_ERRNO(ENOTRECOVERABLE),
                                                "Failed to finalize hash context for algorithn '%s'.", a);
 
@@ -3687,7 +3687,7 @@ static int verb_lock_pe(int argc, char *argv[], void *userdata) {
                         const char *a;
 
                         assert_se(a = tpm2_hash_alg_to_string(*pa));
-                        assert_se(md = EVP_get_digestbyname(a));
+                        assert_se(md = sym_EVP_get_digestbyname(a));
 
                         r = pe_hash(fd < 0 ? STDIN_FILENO : fd, md, &hash, &hash_size);
                         if (r < 0)
@@ -3743,7 +3743,7 @@ static int verb_lock_uki(int argc, char *argv[], void *userdata) {
                 const char *a;
 
                 assert_se(a = tpm2_hash_alg_to_string(tpm2_hash_algorithms[i]));
-                assert_se(md = EVP_get_digestbyname(a));
+                assert_se(md = sym_EVP_get_digestbyname(a));
 
                 r = pe_hash(fd < 0 ? STDIN_FILENO : fd, md, &peh, hash_sizes + i);
                 if (r < 0)
@@ -3983,7 +3983,7 @@ static const EVP_MD* evp_from_tpm2_alg(uint16_t alg) {
         if (!name)
                 return NULL;
 
-        return EVP_get_digestbyname(name);
+        return sym_EVP_get_digestbyname(name);
 }
 
 static int event_log_component_variant_calculate(
@@ -4021,13 +4021,13 @@ static int event_log_component_variant_calculate(
                                 continue;
                         }
 
-                        md_ctx = EVP_MD_CTX_new();
+                        md_ctx = sym_EVP_MD_CTX_new();
                         if (!md_ctx)
                                 return log_oom();
 
                         const EVP_MD *md = ASSERT_PTR(evp_from_tpm2_alg(tpm2_hash_algorithms[i]));
 
-                        int sz = EVP_MD_size(md);
+                        int sz = sym_EVP_MD_get_size(md);
                         assert(sz > 0);
                         assert((size_t) sz <= sizeof_field(TPM2B_DIGEST, buffer));
 
@@ -4036,17 +4036,17 @@ static int event_log_component_variant_calculate(
                         assert(result->hash[i].size == (size_t) sz);
                         assert(b->hash.size == (size_t) sz);
 
-                        if (EVP_DigestInit_ex(md_ctx, md, NULL) != 1)
+                        if (sym_EVP_DigestInit_ex(md_ctx, md, NULL) != 1)
                                 return log_error_errno(SYNTHETIC_ERRNO(ENOTRECOVERABLE), "Failed to initialize message digest.");
 
-                        if (EVP_DigestUpdate(md_ctx, result->hash[i].buffer, sz) != 1)
+                        if (sym_EVP_DigestUpdate(md_ctx, result->hash[i].buffer, sz) != 1)
                                 return log_error_errno(SYNTHETIC_ERRNO(ENOTRECOVERABLE), "Failed to hash bank value.");
 
-                        if (EVP_DigestUpdate(md_ctx, b->hash.buffer, sz) != 1)
+                        if (sym_EVP_DigestUpdate(md_ctx, b->hash.buffer, sz) != 1)
                                 return log_error_errno(SYNTHETIC_ERRNO(ENOTRECOVERABLE), "Failed to hash data value.");
 
                         unsigned l = (unsigned) sz;
-                        if (EVP_DigestFinal_ex(md_ctx, result->hash[i].buffer, &l) != 1)
+                        if (sym_EVP_DigestFinal_ex(md_ctx, result->hash[i].buffer, &l) != 1)
                                 return log_error_errno(SYNTHETIC_ERRNO(ENOTRECOVERABLE), "Failed to finalize message digest.");
 
                         assert(l == (unsigned) sz);

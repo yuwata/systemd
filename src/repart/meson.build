@@ -16,7 +16,7 @@ executables += [
                 'dependencies' : [
                         libblkid_cflags,
                         libfdisk,
-                        libopenssl,
+                        libopenssl_cflags,
                         threads,
                 ],
         },
@@ -35,7 +35,7 @@ executables += [
                 'dependencies' : [
                         libblkid_cflags,
                         libfdisk,
-                        libopenssl,
+                        libopenssl_cflags,
                         threads,
                 ],
         },

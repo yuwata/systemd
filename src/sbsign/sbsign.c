@@ -16,7 +16,6 @@
 #include "io-util.h"
 #include "log.h"
 #include "main-func.h"
-#include "openssl-util.h"
 #include "parse-argument.h"
 #include "pe-binary.h"
 #include "pretty-print.h"

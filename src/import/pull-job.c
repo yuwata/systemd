@@ -42,7 +42,7 @@ PullJob* pull_job_unref(PullJob *j) {
         import_compress_free(&j->compress);
 
         if (j->checksum_ctx)
-                EVP_MD_CTX_free(j->checksum_ctx);
+                sym_EVP_MD_CTX_free(j->checksum_ctx);
 
         free(j->url);
         free(j->etag);
@@ -103,7 +103,7 @@ static int pull_job_restart(PullJob *j, const char *new_url) {
         import_compress_free(&j->compress);
 
         if (j->checksum_ctx) {
-                EVP_MD_CTX_free(j->checksum_ctx);
+                sym_EVP_MD_CTX_free(j->checksum_ctx);
                 j->checksum_ctx = NULL;
         }
 
@@ -224,7 +224,7 @@ void pull_job_curl_on_finished(CurlGlue *g, CURL *curl, CURLcode result) {
                 unsigned checksum_len;
                 uint8_t k[EVP_MAX_MD_SIZE];
 
-                r = EVP_DigestFinal_ex(j->checksum_ctx, k, &checksum_len);
+                r = sym_EVP_DigestFinal_ex(j->checksum_ctx, k, &checksum_len);
                 if (r == 0) {
                         r = log_error_errno(SYNTHETIC_ERRNO(EIO), "Failed to get checksum.");
                         goto finish;
@@ -380,7 +380,7 @@ static int pull_job_write_compressed(PullJob *j, void *p, size_t sz) {
                                        "Content length incorrect.");
 
         if (j->checksum_ctx) {
-                r = EVP_DigestUpdate(j->checksum_ctx, p, sz);
+                r = sym_EVP_DigestUpdate(j->checksum_ctx, p, sz);
                 if (r == 0)
                         return log_error_errno(SYNTHETIC_ERRNO(EIO),
                                                "Could not hash chunk.");
@@ -417,11 +417,11 @@ static int pull_job_open_disk(PullJob *j) {
         }
 
         if (j->calc_checksum) {
-                j->checksum_ctx = EVP_MD_CTX_new();
+                j->checksum_ctx = sym_EVP_MD_CTX_new();
                 if (!j->checksum_ctx)
                         return log_oom();
 
-                r = EVP_DigestInit_ex(j->checksum_ctx, EVP_sha256(), NULL);
+                r = sym_EVP_DigestInit_ex(j->checksum_ctx, sym_EVP_sha256(), NULL);
                 if (r == 0)
                         return log_error_errno(SYNTHETIC_ERRNO(EIO),
                                                "Failed to initialize hash context.");
