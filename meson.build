@@ -1030,6 +1030,9 @@ librt = cc.find_library('rt')
 libm = cc.find_library('m')
 libdl = cc.find_library('dl')
 
+libmuslpolyfill = dependency('libmuslpolyfill',
+                             required : get_option('libc') == 'musl')
+
 # On some distributions that use musl (e.g. Alpine), libintl.h may be provided by gettext rather than musl.
 # In that case, we need to explicitly link with libintl.so.
 if cc.has_function('dgettext',
@@ -2074,11 +2077,14 @@ userspace_c_args += ['-include', 'config.h']
 
 jinja2_cmdline = [meson_render_jinja2, config_h]
 
-userspace = declare_dependency(
-        compile_args : userspace_c_args,
-        link_args : userspace_c_ld_args,
-        sources : userspace_sources,
-)
+userspace = [
+        declare_dependency(
+                compile_args : userspace_c_args,
+                link_args : userspace_c_ld_args,
+                sources : userspace_sources,
+        ),
+        libmuslpolyfill,
+]
 
 man_page_depends = []
 
