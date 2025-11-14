@@ -3,6 +3,8 @@
 
 set -eux
 
+#MPF_COMMIT_HASH=bf65bdde2eae1bae6262b661d253493ca0db21d1
+
 if ! command -v musl-gcc >/dev/null; then
     echo "musl-gcc is not installed, skipping the test."
     exit 77
@@ -83,6 +85,21 @@ for t in "${LINKS[@]}"; do
     mkdir -p "${link%/*}"
     ln -s /usr/include/"$t" "$link"
 done
+
+if [[ -n "${MPF_COMMIT_HASH:-}" ]]; then
+    git clone https://github.com/yuwata/libmuslpolyfill.git "${TMPDIR}"/libmuslpolyfill
+    git -C "${TMPDIR}"/libmuslpolyfill checkout "$MPF_COMMIT_HASH"
+
+    env \
+        CC=musl-gcc \
+        CXX=musl-gcc \
+        CFLAGS="$CFLAGS" \
+        CXXFLAGS="$CFLAGS" \
+        meson setup --werror --prefix="${TMPDIR}"/usr "${TMPDIR}"/libmuslpolyfill/build "${TMPDIR}"/libmuslpolyfill
+
+    ninja -v -C "${TMPDIR}"/libmuslpolyfill/build
+    meson install -C "${TMPDIR}"/libmuslpolyfill/build
+fi
 
 env \
     CC=musl-gcc \

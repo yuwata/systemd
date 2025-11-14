@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
+#MPF_COMMIT_HASH=bf65bdde2eae1bae6262b661d253493ca0db21d1
+
 # shellcheck disable=SC2206
 PHASES=(${@:-SETUP BUILD RUN CLEANUP})
 
@@ -26,6 +28,17 @@ for phase in "${PHASES[@]}"; do
             for i in /bin/* /sbin/*; do
                 ln -rs "$i" "/usr/$i";
             done
+
+            if [[ -n "${MPF_COMMIT_HASH:-}" ]]; then
+                cd /tmp
+                git clone https://github.com/yuwata/libmuslpolyfill.git
+                cd libmuslpolyfill
+                git checkout "$MPF_COMMIT_HASH"
+
+                run_meson setup --werror build
+                ninja -v -C build
+                meson install -C builed
+            fi
             ;;
         BUILD)
             info "Build systemd phase"
