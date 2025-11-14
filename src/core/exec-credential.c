@@ -53,7 +53,7 @@ ExecImportCredential* exec_import_credential_free(ExecImportCredential *ic) {
         if (!ic)
                 return NULL;
 
-        free(ic->glob);
+        free(ic->glob_pattern);
         free(ic->rename);
         return mfree(ic);
 }
@@ -62,7 +62,7 @@ static void exec_import_credential_hash_func(const ExecImportCredential *ic, str
         assert(ic);
         assert(state);
 
-        siphash24_compress_string(ic->glob, state);
+        siphash24_compress_string(ic->glob_pattern, state);
         if (ic->rename)
                 siphash24_compress_string(ic->rename, state);
 }
@@ -73,7 +73,7 @@ static int exec_import_credential_compare_func(const ExecImportCredential *a, co
         assert(a);
         assert(b);
 
-        r = strcmp(a->glob, b->glob);
+        r = strcmp(a->glob_pattern, b->glob_pattern);
         if (r != 0)
                 return r;
 
@@ -201,9 +201,9 @@ int exec_context_put_import_credential(ExecContext *c, const char *glob, const c
                 return -ENOMEM;
 
         *ic = (ExecImportCredential) {
-                .glob = strdup(glob),
+                .glob_pattern = strdup(glob),
         };
-        if (!ic->glob)
+        if (!ic->glob_pattern)
                 return -ENOMEM;
         if (rename) {
                 ic->rename = strdup(rename);
@@ -532,7 +532,7 @@ static int load_credential_glob(
                 _cleanup_strv_free_ char **paths = NULL;
                 _cleanup_free_ char *j = NULL;
 
-                j = path_join(*d, ic->glob);
+                j = path_join(*d, ic->glob_pattern);
                 if (!j)
                         return -ENOMEM;
 
@@ -554,7 +554,7 @@ static int load_credential_glob(
                         if (ic->rename) {
                                 _cleanup_free_ char *renamed = NULL;
 
-                                renamed = strjoin(ic->rename, fn + strlen(ic->glob) - !!endswith(ic->glob, "*"));
+                                renamed = strjoin(ic->rename, fn + strlen(ic->glob_pattern) - !!endswith(ic->glob_pattern, "*"));
                                 if (!renamed)
                                         return log_oom_debug();
 

@@ -719,7 +719,7 @@ static int property_get_import_credential(
                 return r;
 
         ORDERED_SET_FOREACH(ic, c->import_credentials) {
-                r = sd_bus_message_append(reply, "s", ic->glob);
+                r = sd_bus_message_append(reply, "s", ic->glob_pattern);
                 if (r < 0)
                         return r;
         }
@@ -749,7 +749,7 @@ static int property_get_import_credential_ex(
                 return r;
 
         ORDERED_SET_FOREACH(ic, c->import_credentials) {
-                r = sd_bus_message_append(reply, "(ss)", ic->glob, ic->rename);
+                r = sd_bus_message_append(reply, "(ss)", ic->glob_pattern, ic->rename);
                 if (r < 0)
                         return r;
         }

@@ -2488,7 +2488,7 @@ static int exec_context_serialize(const ExecContext *c, FILE *f) {
         ExecImportCredential *ic;
         ORDERED_SET_FOREACH(ic, c->import_credentials) {
                 r = serialize_item_format(f, "exec-context-import-credentials", "%s%s%s",
-                                          ic->glob,
+                                          ic->glob_pattern,
                                           ic->rename ? " " : "",
                                           strempty(ic->rename));
                 if (r < 0)

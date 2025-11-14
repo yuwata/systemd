@@ -736,7 +736,7 @@ static int import_credential_build_json(sd_json_variant **ret, const char *name,
         ORDERED_SET_FOREACH(ic, import_credentials) {
                 r = sd_json_variant_append_arraybo(
                                 &v,
-                                SD_JSON_BUILD_PAIR_STRING("glob", ic->glob),
+                                SD_JSON_BUILD_PAIR_STRING("glob", ic->glob_pattern),
                                 JSON_BUILD_PAIR_STRING_NON_EMPTY("rename", ic->rename));
                 if (r < 0)
                         return r;

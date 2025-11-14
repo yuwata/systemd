@@ -19,7 +19,7 @@ typedef struct ExecSetCredential {
 } ExecSetCredential;
 
 typedef struct ExecImportCredential {
-        char *glob;
+        char *glob_pattern;
         char *rename;
 } ExecImportCredential;
 
@@ -39,7 +39,7 @@ int exec_context_put_set_credential(
                 void *data_consume,
                 size_t size,
                 bool encrypted);
-int exec_context_put_import_credential(ExecContext *c, const char *glob, const char *rename);
+int exec_context_put_import_credential(ExecContext *c, const char *glob_pattern, const char *rename);
 
 bool exec_params_need_credentials(const ExecParameters *p);
 
