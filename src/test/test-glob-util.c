@@ -66,7 +66,16 @@ TEST(safe_glob) {
         fname = strjoina(template, "/.foobar");
         ASSERT_OK(touch(fname));
 
+#ifdef __GLIBC__
         ASSERT_ERROR(safe_glob(fn, /* flags = */ 0, &v), ENOENT);
+#else
+        /* Currently musl does not support GLOB_ALTDIRFUNC. */
+        ASSERT_OK(safe_glob(fn, /* flags = */ 0, &v));
+        ASSERT_EQ(strv_length(v), 1u);
+        ASSERT_STREQ(v[0], fname);
+        ASSERT_NULL(v[1]);
+        v = strv_free(v);
+#endif
 
         ASSERT_OK(safe_glob(fn2, GLOB_NOSORT|GLOB_BRACE, &v));
         ASSERT_EQ(strv_length(v), 1u);
