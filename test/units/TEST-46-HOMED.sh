@@ -6,6 +6,8 @@ set -o pipefail
 
 # shellcheck source=test/units/test-control.sh
 . "$(dirname "$0")"/test-control.sh
+# shellcheck source=test/units/util.sh
+. "$(dirname "$0")"/util.sh
 
 # Check if homectl is installed, and if it isn't bail out early instead of failing
 if ! command -v homectl >/dev/null; then
@@ -38,6 +40,21 @@ wait_for_state() {
     timeout 2m bash -c "until homectl inspect '${1:?}' | grep -qF 'State: $2'; do sleep 2; done"
 }
 
+get_uid() {
+    local uid name="${1:?}"
+
+    # The machine ID may start with a numeric, and in that case the field name must be quoted.
+    uid="$(homectl inspect --json=short "$name" | jq .binding.\""$(cat /etc/machine-id)"\".uid)"
+
+    # Check if the obtained UID is consistent with the one provided by the id command.
+    # Note, this requires systemd NSS module.
+    if check_nss_module systemd; then
+        [[ "$(id -u "$name")" == "$uid" ]]
+    fi
+
+    echo "$uid"
+}
+
 FSTYPE="$(stat --file-system --format "%T" /)"
 
 systemctl start systemd-homed.service systemd-userdbd.socket
@@ -51,6 +68,12 @@ systemctl kill -sUSR1 systemd-homed
 
 testcase_basic() {
     local TMP_SKEL
+
+    . /etc/os-release
+    if [[ "${ID_LIKE:-}" == alpine ]] && ! systemd-detect-virt -cq; then
+        # luks seems to be broken on alpine/postmarketos.
+        return 0
+    fi
 
     TMP_SKEL=$(mktemp -d)
     echo hogehoge >"$TMP_SKEL"/hoge
@@ -225,7 +248,10 @@ testcase_basic() {
     PASSWORD=xEhErW0ndafV4s homectl with test-user -- rm /home/test-user/xyz
     PASSWORD=xEhErW0ndafV4s homectl with test-user -- test ! -f /home/test-user/xyz
     (! PASSWORD=xEhErW0ndafV4s homectl with test-user -- test -f /home/test-user/xyz)
-    [[ "$(PASSWORD=xEhErW0ndafV4s homectl with test-user -- stat -c %U /home/test-user/hoge)" == "test-user" ]]
+    if check_nss_module systemd; then
+        [[ "$(PASSWORD=xEhErW0ndafV4s homectl with test-user -- stat -c %U /home/test-user/hoge)" == "test-user" ]]
+    fi
+    [[ "$(PASSWORD=xEhErW0ndafV4s homectl with test-user -- stat -c %u /home/test-user/hoge)" == "$(get_uid test-user)" ]]
     [[ "$(PASSWORD=xEhErW0ndafV4s homectl with test-user -- cat /home/test-user/hoge)" == "$(cat "$TMP_SKEL"/hoge)" ]]
 
     # Regression tests
@@ -237,6 +263,12 @@ testcase_basic() {
 }
 
 testcase_blob() {
+    . /etc/os-release
+    if [[ "${ID_LIKE:-}" == alpine ]] && ! systemd-detect-virt -cq; then
+        # luks seems to be broken on alpine/postmarketos.
+        return 0
+    fi
+
     # blob directory tests
     # See docs/USER_RECORD_BLOB_DIRS.md
     checkblob() {
@@ -573,6 +605,11 @@ testcase_ssh() {
         return 0
     fi
 
+    # 'ssh homedsshtest@localhost' requires systemd NSS module.
+    if ! check_nss_module systemd; then
+        return 0
+    fi
+
     if ! command -v ssh >/dev/null || ! command -v sshd >/dev/null; then
         echo "ssh/sshd is not installed, skipping the ssh test."
         return 0
@@ -676,17 +713,24 @@ testcase_alias() {
     userdbctl user aliastest2@myrealm
     userdbctl user aliastest3@myrealm
 
-    getent passwd aliastest
-    getent passwd aliastest2
-    getent passwd aliastest3
-    getent passwd aliastest@myrealm
-    getent passwd aliastest2@myrealm
-    getent passwd aliastest3@myrealm
+    if check_nss_module systemd; then
+        getent passwd aliastest
+        getent passwd aliastest2
+        getent passwd aliastest3
+        getent passwd aliastest@myrealm
+        getent passwd aliastest2@myrealm
+        getent passwd aliastest3@myrealm
+    fi
 
     homectl remove aliastest
 }
 
 testcase_quota() {
+    # 'run0 -u' requires systemd NSS module.
+    if ! check_nss_module systemd; then
+        return 0
+    fi
+
     NEWPASSWORD=quux homectl create tmpfsquota --storage=subvolume --dev-shm-limit=50K --tmp-limit=50K -P
     for p in /dev/shm /tmp; do
         if findmnt -n -o options "$p" | grep -q usrquota; then
@@ -711,6 +755,11 @@ testcase_quota() {
 }
 
 testcase_subarea() {
+    # 'run0 -u' requires systemd NSS module.
+    if ! check_nss_module systemd; then
+        return 0
+    fi
+
     NEWPASSWORD=quux homectl create subareatest --storage=subvolume -P
     run0 --property=SetCredential=pam.authtok.systemd-run0:quux -u subareatest mkdir Areas
     run0 --property=SetCredential=pam.authtok.systemd-run0:quux -u subareatest cp -av /etc/skel Areas/furb
@@ -773,6 +822,11 @@ testcase_sign() {
     # Test signing key logic
     homectl list-signing-keys | grep -q local.public
     (! (homectl list-signing-keys | grep -q signtest.public))
+
+    if built_with_musl; then
+        # FIXME: musl does not support yescrypt. Use SHA512 and update signature.
+        return 0
+    fi
 
     print_identity() {
         cat <<\EOF
