@@ -41,7 +41,7 @@ jobs:
     steps:
       - name: Build Fuzzers
         id: build
-        uses: google/oss-fuzz/infra/cifuzz/actions/build_fuzzers@master
+        uses: yuwata/oss-fuzz/infra/cifuzz/actions/build_fuzzers@systemd-ubuntu-24.04
         with:
           oss-fuzz-project-name: 'systemd'
           dry-run: false
@@ -52,7 +52,7 @@ jobs:
           architecture: ${{ matrix.architecture }}
           output-sarif: true
       - name: Run Fuzzers
-        uses: google/oss-fuzz/infra/cifuzz/actions/run_fuzzers@master
+        uses: yuwata/oss-fuzz/infra/cifuzz/actions/run_fuzzers@systemd-ubuntu-24.04
         with:
           oss-fuzz-project-name: 'systemd'
           fuzz-seconds: 600

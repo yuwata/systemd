@@ -25,13 +25,13 @@ jobs:
     steps:
     - name: Build Fuzzers
       id: build
-      uses: google/clusterfuzzlite/actions/build_fuzzers@v1
+      uses: yuwata/clusterfuzzlite/actions/build_fuzzers@migrate-to-ubuntu-24-04
       with:
         sanitizer: ${{ matrix.sanitizer }}
         github-token: ${{ secrets.GITHUB_TOKEN }}
     - name: Run Fuzzers
       id: run
-      uses: google/clusterfuzzlite/actions/run_fuzzers@v1
+      uses: yuwata/clusterfuzzlite/actions/run_fuzzers@migrate-to-ubuntu-24-04
       with:
         github-token: ${{ secrets.GITHUB_TOKEN }}
         fuzz-seconds: 1200
