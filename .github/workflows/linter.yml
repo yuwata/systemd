@@ -63,16 +63,19 @@ jobs:
       - name: Run ruff format
         run: |
           mkosi box -- ruff --version
-          if ! mkosi box -- ruff format --check src/core/generate-bpf-delegate-configs.py src/boot/generate-hwids-section.py src/test/generate-sym-test.py src/ukify/ukify.py test/integration-tests/integration-test-wrapper.py
+          # shellcheck disable=SC2046
+          if ! mkosi box -- ruff format --check $(git ls-files -- *.py | sed -e '/gen_autosuspend_rules/d')
           then
               echo "Please run 'ruff format' on the above files or apply the diffs below manually"
-              mkosi box -- ruff format --check --quiet --diff src/core/generate-bpf-delegate-configs.py src/boot/generate-hwids-section.py src/test/generate-sym-test.py src/ukify/ukify.py test/integration-tests/integration-test-wrapper.py
+              # shellcheck disable=SC2046
+              mkosi box -- ruff format --check --quiet --diff $(git ls-files -- *.py | sed -e '/gen_autosuspend_rules/d')
           fi
 
       - name: Run ruff check
         run: |
           mkosi box -- ruff --version
-          mkosi box -- ruff check src/core/generate-bpf-delegate-configs.py src/boot/generate-hwids-section.py src/test/generate-sym-test.py src/ukify/ukify.py test/integration-tests/integration-test-wrapper.py
+          # shellcheck disable=SC2046
+          mkosi box -- ruff check $(git ls-files -- *.py | sed -e '/gen_autosuspend_rules/d')
 
       - name: Configure meson
         run: mkosi box -- env CC=clang CXX=clang++ meson setup build
