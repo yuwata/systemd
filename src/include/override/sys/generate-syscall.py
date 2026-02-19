@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
-import sys
 import functools
+import sys
 
 # We only generate numbers for a dozen or so syscalls
 SYSCALLS = [
@@ -11,24 +11,29 @@ SYSCALLS = [
     'quotactl_fd',   # defined in glibc header since glibc-2.35
     'removexattrat',
     'setxattrat',
-]
+]  # fmt: skip
+
 
 def dictify(f):
     def wrap(*args, **kwargs):
         return dict(f(*args, **kwargs))
+
     return functools.update_wrapper(wrap, f)
+
 
 @dictify
 def parse_syscall_table(filename):
     print(f'Reading {filename}…')
-    for line in open(filename):
-        items = line.split()
-        if len(items) >= 2:
-            yield items[0], int(items[1])
+    with open(filename) as f:
+        for line in f:
+            items = line.split()
+            if len(items) >= 2:
+                yield items[0], int(items[1])
+
 
 def parse_syscall_tables(filenames):
-    return {filename.split('-')[-1][:-4]: parse_syscall_table(filename)
-            for filename in filenames}
+    return {filename.split('-')[-1][:-4]: parse_syscall_table(filename) for filename in filenames}
+
 
 HEADER = '''\
 /* SPDX-License-Identifier: LGPL-2.1-or-later
@@ -54,6 +59,11 @@ HEADER = '''\
 DEF_TEMPLATE_A = '''\
 
 #ifndef __IGNORE_{syscall}
+'''
+
+ARCH_CHECK_A = '''\
+/* Note: if this code looks strange, this is because it is derived from the same
+ * template as the per-syscall blocks below. */
 '''
 
 DEF_TEMPLATE_B = '''\
@@ -107,12 +117,22 @@ DEF_TEMPLATE_B = '''\
 #    else
 #      define systemd_NR_{syscall} {nr_x86_64}
 #    endif
-#  elif !defined(missing_arch_template)
-%s
-#  endif
 '''
 
 DEF_TEMPLATE_C = '''\
+#  elif !defined(missing_arch_template)
+#    warning "{syscall}() syscall number is unknown for your architecture"
+#  endif
+'''
+
+ARCH_CHECK_C = '''\
+
+#  else
+#    warning "Current architecture is missing from the template"
+#    define missing_arch_template 1
+#  endif'''
+
+DEF_TEMPLATE_D = '''\
 
 /* may be an (invalid) negative number due to libseccomp, see PR 13319 */
 #  if defined __NR_{syscall} && __NR_{syscall} >= 0
@@ -129,23 +149,25 @@ static_assert(__NR_{syscall} == systemd_NR_{syscall}, "");
 #  endif
 #endif'''
 
-DEF_TEMPLATE = (DEF_TEMPLATE_A +
-                DEF_TEMPLATE_B % '#    warning "{syscall}() syscall number is unknown for your architecture"' +
-                DEF_TEMPLATE_C)
+DEF_TEMPLATE = (
+    DEF_TEMPLATE_A
+    + DEF_TEMPLATE_B
+    + DEF_TEMPLATE_C
+    + DEF_TEMPLATE_D
+)  # fmt: skip
 
-ARCH_CHECK = '''\
-/* Note: if this code looks strange, this is because it is derived from the same
- * template as the per-syscall blocks below. */
-''' + '\n'.join(line for line in DEF_TEMPLATE_B.splitlines()
-                       if ' define ' not in line) % '''\
-#    warning "Current architecture is missing from the template"
-#    define missing_arch_template 1'''
+ARCH_CHECK = (
+    ARCH_CHECK_A
+    + '\n'.join(line for line in DEF_TEMPLATE_B.splitlines() if ' define ' not in line)
+    + ARCH_CHECK_C
+)
+
 
 def print_syscall_def(syscall, tables, out):
-    mappings = {f'nr_{arch}':t.get(syscall, -1)
-                for arch, t in tables.items()}
-    print(DEF_TEMPLATE.format(syscall=syscall, **mappings),
-          file=out)
+    mappings = {f'nr_{arch}': t.get(syscall, -1)
+                for arch, t in tables.items()}  # fmt: skip
+    print(DEF_TEMPLATE.format(syscall=syscall, **mappings), file=out)
+
 
 def print_syscall_defs(syscalls, tables, out):
     print(HEADER, file=out)
@@ -153,12 +175,13 @@ def print_syscall_defs(syscalls, tables, out):
     for syscall in syscalls:
         print_syscall_def(syscall, tables, out)
 
+
 if __name__ == '__main__':
     output_file = sys.argv[1]
     arch_files = sys.argv[2:]
-    out = open(output_file, 'wt')
 
     tables = parse_syscall_tables(arch_files)
-    print_syscall_defs(SYSCALLS, tables, out)
+    with open(output_file, 'w') as out:
+        print_syscall_defs(SYSCALLS, tables, out)
 
     print(f'Wrote {output_file}')
