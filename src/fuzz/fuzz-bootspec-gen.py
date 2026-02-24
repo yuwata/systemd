@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 config = Path(sys.argv[1]).read_text()
-loader = [entry for entry in Path(sys.argv[2]).read_text(encoding='utf-16-le').split('\0')]
+loader = [entry for entry in Path(sys.argv[2]).read_text(encoding='utf-16-le').split('\0') if len(entry) > 2]
 entries = [(Path(name).name, Path(name).read_text()) for name in sys.argv[3:]]
 
 data = {
