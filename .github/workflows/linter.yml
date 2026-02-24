@@ -75,7 +75,13 @@ jobs:
         run: |
           mkosi box -- ruff --version
           # shellcheck disable=SC2046
-          mkosi box -- ruff check $(git ls-files -- *.py | sed -e '/gen_autosuspend_rules/d')
+          if ! mkosi box -- ruff check --ignore E501,E731 $(git ls-files -- *.py | sed -e '/gen_autosuspend_rules/d')
+          then
+              echo "Please fix the errors shown by 'ruff check' on the above files or add noqa comments were appropriate"
+              echo "Diffs for fixes that can be programmatically generated are shown below:"
+              # shellcheck disable=SC2046
+              mkosi box -- ruff check --ignore E501,E731 --diff $(git ls-files -- *.py | sed -e '/gen_autosuspend_rules/d')
+          fi
 
       - name: Configure meson
         run: mkosi box -- env CC=clang CXX=clang++ meson setup build
