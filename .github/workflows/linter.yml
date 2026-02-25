@@ -64,23 +64,23 @@ jobs:
         run: |
           mkosi box -- ruff --version
           # shellcheck disable=SC2046
-          if ! mkosi box -- ruff format --check $(git ls-files -- *.py | sed -e '/gen_autosuspend_rules/d')
+          if ! mkosi box -- ruff format --check
           then
               echo "Please run 'ruff format' on the above files or apply the diffs below manually"
               # shellcheck disable=SC2046
-              mkosi box -- ruff format --check --quiet --diff $(git ls-files -- *.py | sed -e '/gen_autosuspend_rules/d')
+              mkosi box -- ruff format --check --quiet --diff
           fi
 
       - name: Run ruff check
         run: |
           mkosi box -- ruff --version
           # shellcheck disable=SC2046
-          if ! mkosi box -- ruff check $(git ls-files -- *.py | sed -e '/gen_autosuspend_rules/d')
+          if ! mkosi box -- ruff check
           then
               echo "Please fix the errors shown by 'ruff check' on the above files or add noqa comments were appropriate"
               echo "Diffs for fixes that can be programmatically generated are shown below:"
               # shellcheck disable=SC2046
-              mkosi box -- ruff check --diff $(git ls-files -- *.py | sed -e '/gen_autosuspend_rules/d')
+              mkosi box -- ruff check --diff
           fi
 
       - name: Configure meson

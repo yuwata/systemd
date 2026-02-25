@@ -3,7 +3,10 @@ line-length = 109
 lint.select = ["E", "F", "I", "Q", "UP"]
 # E501: line-too-long
 # E731: lambda-assignment
-lint.ignore = ["E501", "E731"]
+lint.ignore = ["E501"]
+
+[lint.per-file-ignores]
+"tools/chromiumos/gen_autosuspend_rules.py" = ["Q000", "Q001"]
 
 [format]
 # The formatter prefers double quotes for multiline quotes,

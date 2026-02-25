@@ -365,22 +365,22 @@ SUBSYSTEM=="usb", GOTO="autosuspend_usb"
 
 # I2C rules
 LABEL="autosuspend_i2c"
-ATTR{name}=="cyapa", ATTR{power/control}="on", GOTO="autosuspend_end"
+ATTR{{name}}=="cyapa", ATTR{{power/control}}="on", GOTO="autosuspend_end"
 GOTO="autosuspend_end"
 
 # PCI rules
 LABEL="autosuspend_pci"
-%(pci_rules)s\
+{pci_rules}\
 GOTO="autosuspend_end"
 
 # USB rules
 LABEL="autosuspend_usb"
-%(usb_rules)s\
+{usb_rules}\
 GOTO="autosuspend_end"
 
 # Enable autosuspend
 LABEL="autosuspend_enable"
-TEST=="power/control", ATTR{power/control}="auto", GOTO="autosuspend_end"
+TEST=="power/control", ATTR{{power/control}}="auto", GOTO="autosuspend_end"
 
 LABEL="autosuspend_end"
 """
@@ -391,19 +391,15 @@ def main():
     for dev_ids in PCI_IDS:
         vendor, device = dev_ids.split(":")
         pci_rules += (
-            'ATTR{vendor}=="0x%s", ATTR{device}=="0x%s", '
-            'GOTO="autosuspend_enable"\n' % (vendor, device)
+            f'ATTR{{vendor}}=="0x{vendor}", ATTR{{device}}=="0x{device}", GOTO="autosuspend_enable"\n'
         )
 
     usb_rules = ""
     for dev_ids in USB_IDS:
         vid, pid = dev_ids.split(":")
-        usb_rules += (
-            'ATTR{idVendor}=="%s", ATTR{idProduct}=="%s", '
-            'GOTO="autosuspend_enable"\n' % (vid, pid)
-        )
+        usb_rules += f'ATTR{{idVendor}}=="{vid}", ATTR{{idProduct}}=="{pid}", GOTO="autosuspend_enable"\n'
 
-    print(UDEV_RULE % {"pci_rules": pci_rules, "usb_rules": usb_rules})
+    print(UDEV_RULE.format(pci_rules=pci_rules, usb_rules=usb_rules))
 
 
 if __name__ == "__main__":
