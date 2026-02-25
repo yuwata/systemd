@@ -5,6 +5,9 @@ lint.select = ["E", "F", "I", "Q", "UP"]
 # E731: lambda-assignment
 lint.ignore = ["E501"]
 
+[lint.per-file-ignores]
+"tools/chromiumos/gen_autosuspend_rules.py" = ["Q000", "Q001"]
+
 [format]
 # The formatter prefers double quotes for multiline quotes,
 # Hence, let's make the formatter not change quotations.
