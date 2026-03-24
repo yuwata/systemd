@@ -51,30 +51,30 @@ static void verify_address(sd_dhcp_message *m, const struct in_addr *expected) {
         ASSERT_EQ(a.s_addr, expected->s_addr);
 }
 
-static void verify_addresses(sd_dhcp_message *m, size_t n_expected, const struct in_addr *expected) {
+static void verify_addresses(
+                sd_dhcp_message *m,
+                size_t n_ntp, const struct in_addr *ntp,
+                size_t n_sip, const struct in_addr *sip) {
+
         struct in_addr a;
         ASSERT_OK(dhcp_message_get_option_be32(m, SD_DHCP_OPTION_NTP_SERVER, &a.s_addr));
-        ASSERT_EQ(a.s_addr, expected->s_addr);
+        ASSERT_EQ(a.s_addr, ntp->s_addr);
         ASSERT_OK(dhcp_message_get_option_address(m, SD_DHCP_OPTION_NTP_SERVER, &a));
-        ASSERT_EQ(a.s_addr, expected->s_addr);
+        ASSERT_EQ(a.s_addr, ntp->s_addr);
 
-        size_t n_addrs;
+        size_t n;
         _cleanup_free_ struct in_addr *addrs = NULL;
-        ASSERT_OK(dhcp_message_get_option_addresses(m, SD_DHCP_OPTION_NTP_SERVER, &n_addrs, &addrs));
-        ASSERT_EQ(n_addrs, n_expected);
-        ASSERT_EQ(memcmp(addrs, expected, sizeof(struct in_addr) * n_expected), 0);
-}
+        ASSERT_OK(dhcp_message_get_option_addresses(m, SD_DHCP_OPTION_NTP_SERVER, &n, &addrs));
+        ASSERT_EQ(n, n_ntp);
+        ASSERT_EQ(memcmp(addrs, ntp, sizeof(struct in_addr) * n), 0);
 
-static void verify_sip(sd_dhcp_message *m, size_t n_expected, const struct in_addr *expected) {
         ASSERT_ERROR(dhcp_message_get_option_be32(m, SD_DHCP_OPTION_SIP_SERVER, NULL), EBADMSG);
         ASSERT_ERROR(dhcp_message_get_option_address(m, SD_DHCP_OPTION_SIP_SERVER, NULL), EBADMSG);
-        ASSERT_ERROR(dhcp_message_get_option_addresses(m, SD_DHCP_OPTION_SIP_SERVER, NULL, NULL), EBADMSG);
 
-        size_t n_addrs;
-        _cleanup_free_ struct in_addr *addrs = NULL;
-        ASSERT_OK(dhcp_message_get_option_sip_addresses(m, &n_addrs, &addrs));
-        ASSERT_EQ(n_addrs, n_expected);
-        ASSERT_EQ(memcmp(addrs, expected, sizeof(struct in_addr) * n_expected), 0);
+        addrs = mfree(addrs);
+        ASSERT_OK(dhcp_message_get_option_addresses(m, SD_DHCP_OPTION_SIP_SERVER, &n, &addrs));
+        ASSERT_EQ(n, n_sip);
+        ASSERT_EQ(memcmp(addrs, sip, sizeof(struct in_addr) * n), 0);
 }
 
 static void verify_prl(sd_dhcp_message *m, Set *expected) {
@@ -83,15 +83,12 @@ static void verify_prl(sd_dhcp_message *m, Set *expected) {
         ASSERT_TRUE(set_equal(set, expected));
 }
 
-static void verify_hostname(sd_dhcp_message *m, const char *hostname, const char *fqdn) {
+static void verify_fqdn(sd_dhcp_message *m, const char *expected) {
         uint8_t u;
         _cleanup_free_ char *s = NULL;
-        ASSERT_OK(dhcp_message_get_option_hostname(m, &u, &s));
+        ASSERT_OK(dhcp_message_get_option_fqdn(m, &u, &s));
         ASSERT_EQ(u, (uint8_t) DHCP_FQDN_FLAG_E);
-        ASSERT_STREQ(s, fqdn);
-        s = mfree(s);
-        ASSERT_OK(dhcp_message_get_option_string(m, SD_DHCP_OPTION_HOST_NAME, &s));
-        ASSERT_STREQ(s, hostname);
+        ASSERT_STREQ(s, expected);
 }
 
 static void verify_vendor(sd_dhcp_message *m, Hashmap *expected) {
@@ -157,14 +154,19 @@ TEST(dhcp_message) {
         for (unsigned i = 0; i < 10; i++)
                 ASSERT_OK(set_ensure_put(&prl, /* hash_ops= */ NULL, UINT8_TO_PTR((uint8_t) random_u64_range(UINT8_MAX))));
 
-        const char *hostname = "test-hostname";
         const char *fqdn = "test-node.example.com";
         const char *vendor_class = "hogehoge";
         char **root_path = STRV_MAKE("/path/to/root", "/hogehoge/foofoo");
 
-        _cleanup_(iovw_done_free) struct iovec_wrapper user_class = {};
-        FOREACH_STRING(s, "hoge", "foo", "bar")
+        _cleanup_(iovw_done_free) struct iovec_wrapper user_class = {}, user_class_1 = {}, user_class_2 = {};
+        FOREACH_STRING(s, "hoge", "foo", "bar") {
                 ASSERT_OK(iovw_extend(&user_class, s, strlen(s)));
+                ASSERT_OK(iovw_extend(&user_class_1, s, strlen(s)));
+        }
+        FOREACH_STRING(s, "aaa", "bbb", "ccc") {
+                ASSERT_OK(iovw_extend(&user_class, s, strlen(s)));
+                ASSERT_OK(iovw_extend(&user_class_2, s, strlen(s)));
+        }
 
         _cleanup_hashmap_free_ Hashmap *vendor = NULL;
         for (unsigned i = 0; i < 3; i++) {
@@ -186,62 +188,73 @@ TEST(dhcp_message) {
         ASSERT_ERROR(dhcp_message_append_option(m, SD_DHCP_OPTION_END, 0, NULL), EINVAL);
 
         /* string */
-        ASSERT_ERROR(dhcp_message_get_option_string(m, SD_DHCP_OPTION_VENDOR_CLASS_IDENTIFIER, NULL), ENOENT);
+        ASSERT_ERROR(dhcp_message_get_option_string(m, SD_DHCP_OPTION_VENDOR_CLASS_IDENTIFIER, NULL), ENODATA);
+        ASSERT_OK(dhcp_message_append_option_string(m, SD_DHCP_OPTION_VENDOR_CLASS_IDENTIFIER, "hogehoge"));
+        ASSERT_ERROR(dhcp_message_append_option_string(m, SD_DHCP_OPTION_VENDOR_CLASS_IDENTIFIER, vendor_class), EEXIST);
+        dhcp_message_remove_option(m, SD_DHCP_OPTION_VENDOR_CLASS_IDENTIFIER);
         ASSERT_OK(dhcp_message_append_option_string(m, SD_DHCP_OPTION_VENDOR_CLASS_IDENTIFIER, vendor_class));
         verify_string(m, vendor_class);
 
         /* multiple strings */
         STRV_FOREACH(s, root_path)
-                ASSERT_OK(dhcp_message_append_option_string(m, SD_DHCP_OPTION_ROOT_PATH, *s));
+                ASSERT_OK(dhcp_message_append_option(m, SD_DHCP_OPTION_ROOT_PATH, strlen(*s), *s));
         verify_multiple_strings(m, root_path);
 
         /* flag */
-        ASSERT_ERROR(dhcp_message_get_option_flag(m, SD_DHCP_OPTION_RAPID_COMMIT), ENOENT);
+        ASSERT_ERROR(dhcp_message_get_option_flag(m, SD_DHCP_OPTION_RAPID_COMMIT), ENODATA);
         ASSERT_OK(dhcp_message_append_option_flag(m, SD_DHCP_OPTION_RAPID_COMMIT));
-        ASSERT_OK(dhcp_message_append_option_flag(m, SD_DHCP_OPTION_RAPID_COMMIT));
+        ASSERT_ERROR(dhcp_message_append_option_flag(m, SD_DHCP_OPTION_RAPID_COMMIT), EEXIST);
         verify_flag(m);
 
         /* u8 */
-        ASSERT_ERROR(dhcp_message_get_option_u8(m, SD_DHCP_OPTION_MESSAGE_TYPE, NULL), ENOENT);
+        ASSERT_ERROR(dhcp_message_get_option_u8(m, SD_DHCP_OPTION_MESSAGE_TYPE, NULL), ENODATA);
         ASSERT_OK(dhcp_message_append_option_u8(m, SD_DHCP_OPTION_MESSAGE_TYPE, DHCP_DISCOVER));
-        ASSERT_OK(dhcp_message_append_option_u8(m, SD_DHCP_OPTION_MESSAGE_TYPE, DHCP_REQUEST));
-        verify_u8(m, DHCP_DISCOVER); /* the first option is used */
+        ASSERT_ERROR(dhcp_message_append_option_u8(m, SD_DHCP_OPTION_MESSAGE_TYPE, DHCP_REQUEST), EEXIST);
+        verify_u8(m, DHCP_DISCOVER);
 
         /* u16 */
-        ASSERT_OK(dhcp_message_append_option_u8(m, SD_DHCP_OPTION_MAXIMUM_MESSAGE_SIZE, 32));
         ASSERT_OK(dhcp_message_append_option_u16(m, SD_DHCP_OPTION_MAXIMUM_MESSAGE_SIZE, 512));
-        ASSERT_OK(dhcp_message_append_option_u16(m, SD_DHCP_OPTION_MAXIMUM_MESSAGE_SIZE, 1024));
-        verify_u16(m, 512); /* the first valid option is used */
+        ASSERT_ERROR(dhcp_message_append_option_u16(m, SD_DHCP_OPTION_MAXIMUM_MESSAGE_SIZE, 1024), EEXIST);
+        ASSERT_ERROR(dhcp_message_append_option_u8(m, SD_DHCP_OPTION_MAXIMUM_MESSAGE_SIZE, 32), EEXIST);
+        verify_u16(m, 512);
 
         /* address */
         ASSERT_OK(dhcp_message_append_option_be32(m, SD_DHCP_OPTION_REQUESTED_IP_ADDRESS, addr.s_addr));
+        ASSERT_ERROR(dhcp_message_append_option_be32(m, SD_DHCP_OPTION_REQUESTED_IP_ADDRESS, addr.s_addr), EEXIST);
         verify_address(m, &addr);
 
         /* multiple addresses */
         ASSERT_OK(dhcp_message_append_option_address(m, SD_DHCP_OPTION_NTP_SERVER, &ntp[0]));
-        ASSERT_OK(dhcp_message_append_option_address(m, SD_DHCP_OPTION_NTP_SERVER, &ntp[1]));
-        ASSERT_OK(dhcp_message_append_option_addresses(m, SD_DHCP_OPTION_NTP_SERVER, 2, ntp + 2));
-        verify_addresses(m, 4, ntp);
-
-        /* sip server addresses */
-        ASSERT_OK(dhcp_message_append_option_sip_addresses(m, 4, sip));
-        verify_sip(m, 4, sip);
+        ASSERT_OK(dhcp_message_append_option_addresses(m, SD_DHCP_OPTION_NTP_SERVER, 3, ntp + 1));
+        ASSERT_OK(dhcp_message_append_option_addresses(m, SD_DHCP_OPTION_SIP_SERVER, 4, ntp)); /* here, 'ntp' is intentional, not typo */
+        ASSERT_ERROR(dhcp_message_append_option_addresses(m, SD_DHCP_OPTION_SIP_SERVER, 4, sip), EEXIST);
+        ASSERT_OK(dhcp_message_append_option_addresses(m, SD_DHCP_OPTION_SIP_SERVER, 0, NULL));
+        dhcp_message_remove_option(m, SD_DHCP_OPTION_SIP_SERVER);
+        ASSERT_OK(dhcp_message_append_option_addresses(m, SD_DHCP_OPTION_SIP_SERVER, 4, sip));
+        verify_addresses(m, 4, ntp, 4, sip);
 
         /* parameter request list */
         ASSERT_OK(dhcp_message_append_option_parameter_request_list(m, prl));
+        ASSERT_OK(dhcp_message_append_option_parameter_request_list(m, prl));
         verify_prl(m, prl);
 
-        /* hostname */
-        ASSERT_OK(dhcp_message_append_option_hostname(m, /* flags= */ 0, /* is_client= */ false, hostname));
-        ASSERT_OK(dhcp_message_append_option_hostname(m, /* flags= */ 0, /* is_client= */ false, fqdn));
-        verify_hostname(m, hostname, fqdn);
+        /* fqdn */
+        ASSERT_OK(dhcp_message_append_option_fqdn(m, /* flags= */ 0, /* is_client= */ false, "hogehoge.example.com"));
+        ASSERT_ERROR(dhcp_message_append_option_fqdn(m, /* flags= */ 0, /* is_client= */ false, fqdn), EEXIST);
+        dhcp_message_remove_option(m, SD_DHCP_OPTION_FQDN);
+        ASSERT_OK(dhcp_message_append_option_fqdn(m, /* flags= */ 0, /* is_client= */ false, fqdn));
+        verify_fqdn(m, fqdn);
 
         /* vendor specific */
+        ASSERT_OK(dhcp_message_append_option_vendor_specific(m, vendor));
+        ASSERT_ERROR(dhcp_message_append_option_vendor_specific(m, vendor), EEXIST);
+        dhcp_message_remove_option(m, SD_DHCP_OPTION_VENDOR_SPECIFIC);
         ASSERT_OK(dhcp_message_append_option_vendor_specific(m, vendor));
         verify_vendor(m, vendor);
 
         /* user class */
-        ASSERT_OK(dhcp_message_append_option_user_class(m, &user_class));
+        ASSERT_OK(dhcp_message_append_option_user_class(m, &user_class_1));
+        ASSERT_OK(dhcp_message_append_option_user_class(m, &user_class_2));
         verify_user_class(m, &user_class);
 
         /* build and parse */
@@ -269,10 +282,9 @@ TEST(dhcp_message) {
         verify_u8(m2, DHCP_DISCOVER);
         verify_u16(m2, 512);
         verify_address(m2, &addr);
-        verify_addresses(m2, 4, ntp);
-        verify_sip(m2, 4, sip);
+        verify_addresses(m2, 4, ntp, 4, sip);
         verify_prl(m2, prl);
-        verify_hostname(m2, hostname, fqdn);
+        verify_fqdn(m2, fqdn);
         verify_vendor(m2, vendor);
         verify_user_class(m2, &user_class);
 

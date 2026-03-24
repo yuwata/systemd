@@ -9,6 +9,7 @@
 #include "dhcp-lease-internal.h"  /* IWYU pragma: keep */
 #include "dhcp-message.h"
 #include "dhcp-network.h"
+#include "dns-domain.h"
 #include "fd-util.h"
 #include "iovec-wrapper.h"
 #include "ip-util.h"
@@ -441,12 +442,19 @@ static int client_new_message(sd_dhcp_client *client, uint8_t type, sd_dhcp_mess
         /* Hostname (12) or FQDN (81)
          *
          * Note, it is unclear from RFC 2131 if client should send hostname in DHCPDISCOVER but dhclient does
-         * and so we do as well. */
-        r = dhcp_message_append_option_hostname(
-                        message,
-                        DHCP_FQDN_FLAG_S, /* Request server to perform A RR DNS updates */
-                        /* is_client= */ true,
-                        client->hostname);
+         * and so we do as well.
+         *
+         * RFC 4702 section 3.1
+         * clients that send the Client FQDN option in their messages MUST NOT also send the Host Name
+         * option. */
+        if (dns_name_is_single_label(client->hostname))
+                r = dhcp_message_append_option_string(message, SD_DHCP_OPTION_HOST_NAME, client->hostname);
+        else
+                r = dhcp_message_append_option_fqdn(
+                                message,
+                                DHCP_FQDN_FLAG_S, /* Request server to perform A RR DNS updates */
+                                /* is_client= */ true,
+                                client->hostname);
         if (r < 0)
                 return r;
 

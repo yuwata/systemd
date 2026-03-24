@@ -74,6 +74,10 @@ int dhcp_message_init_header(
         return 0;
 }
 
+static bool message_has_option(sd_dhcp_message *message, uint8_t code) {
+        return hashmap_contains(message->options, UINT_TO_PTR(code));
+}
+
 void dhcp_message_remove_option(sd_dhcp_message *message, uint8_t code) {
         assert(message);
         sd_dhcp_option_unref(hashmap_remove(message->options, UINT_TO_PTR(code)));
@@ -93,50 +97,81 @@ int dhcp_message_append_option_string(sd_dhcp_message *message, uint8_t code, co
         if (isempty(data))
                 return 0;
 
+        if (message_has_option(message, code))
+                return -EEXIST;
+
         return dhcp_message_append_option(message, code, strlen(data), data);
 }
 
 int dhcp_message_append_option_flag(sd_dhcp_message *message, uint8_t code) {
+        assert(message);
+
+        if (message_has_option(message, code))
+                return -EEXIST;
+
         return dhcp_message_append_option(message, code, /* length= */ 0, /* data= */ NULL);
 }
 
 int dhcp_message_append_option_u8(sd_dhcp_message *message, uint8_t code, uint8_t data) {
+        assert(message);
+
+        if (message_has_option(message, code))
+                return -EEXIST;
+
         return dhcp_message_append_option(message, code, sizeof(uint8_t), &data);
 }
 
 int dhcp_message_append_option_u16(sd_dhcp_message *message, uint8_t code, uint16_t data) {
+        assert(message);
+
+        if (message_has_option(message, code))
+                return -EEXIST;
+
         be16_t b = htobe16(data);
         return dhcp_message_append_option(message, code, sizeof(be16_t), &b);
 }
 
 int dhcp_message_append_option_be32(sd_dhcp_message *message, uint8_t code, be32_t data) {
+        assert(message);
+
+        if (message_has_option(message, code))
+                return -EEXIST;
+
         return dhcp_message_append_option(message, code, sizeof(be32_t), &data);
 }
 
 int dhcp_message_append_option_address(sd_dhcp_message *message, uint8_t code, const struct in_addr *addr) {
+        assert(message);
+
+        if (message_has_option(message, code))
+                return -EEXIST;
+
         return dhcp_message_append_option(message, code, sizeof(struct in_addr), addr);
 }
 
 int dhcp_message_append_option_addresses(sd_dhcp_message *message, uint8_t code, size_t n_addr, const struct in_addr *addr) {
-        return dhcp_message_append_option(message, code, sizeof(struct in_addr) * n_addr, addr);
-}
-
-int dhcp_message_append_option_sip_addresses(sd_dhcp_message *message, size_t n_addr, const struct in_addr *addr) {
         assert(message);
         assert(n_addr == 0 || addr);
 
-        if (n_addr == 0)
+        if (n_addr <= 0)
                 return 0;
 
-        size_t len = 1 + sizeof(struct in_addr) * n_addr;
-        _cleanup_free_ uint8_t *buf = new(uint8_t, len);
-        if (!buf)
-                return -ENOMEM;
+        if (code == SD_DHCP_OPTION_SIP_SERVER) {
+                if (message_has_option(message, SD_DHCP_OPTION_SIP_SERVER))
+                        return -EEXIST;
 
-        buf[0] = 1; /* 'enc' field, 0: domains, 1: addresses */
-        memcpy(buf + 1, addr, sizeof(struct in_addr) * n_addr);
+                size_t len = 1 + sizeof(struct in_addr) * n_addr;
+                _cleanup_free_ uint8_t *buf = new(uint8_t, len);
+                if (!buf)
+                        return -ENOMEM;
 
-        return dhcp_message_append_option(message, SD_DHCP_OPTION_SIP_SERVER, len, buf);
+                buf[0] = 1; /* 'enc' field, 0: domains, 1: addresses */
+                memcpy(buf + 1, addr, sizeof(struct in_addr) * n_addr);
+
+                return dhcp_message_append_option(message, SD_DHCP_OPTION_SIP_SERVER, len, buf);
+        }
+
+        return dhcp_message_append_option(message, code, sizeof(struct in_addr) * n_addr, addr);
 }
 
 static int cmp_uint8(const uint8_t *a, const uint8_t *b) {
@@ -165,22 +200,16 @@ int dhcp_message_append_option_parameter_request_list(sd_dhcp_message *message, 
         return dhcp_message_append_option(message, SD_DHCP_OPTION_PARAMETER_REQUEST_LIST, len, buf);
 }
 
-int dhcp_message_append_option_hostname(sd_dhcp_message *message, uint8_t flags, bool is_client, const char *hostname) {
+int dhcp_message_append_option_fqdn(sd_dhcp_message *message, uint8_t flags, bool is_client, const char *fqdn) {
         int r;
 
         assert(message);
 
-        if (isempty(hostname))
+        if (isempty(fqdn))
                 return 0;
 
-        /* RFC 4702 section 3.1
-         * clients that send the Client FQDN option in their messages MUST NOT also send the Host Name
-         * option.
-         *
-         * Here, we also do the same for servers. */
-
-        if (dns_name_is_single_label(hostname))
-                return dhcp_message_append_option_string(message, SD_DHCP_OPTION_HOST_NAME, hostname);
+        if (message_has_option(message, SD_DHCP_OPTION_FQDN))
+                return -EEXIST;
 
         /* FIXME: Allow long fqdn, as now we support long option. */
         uint8_t buf[3 + DHCP_MAX_FQDN_LENGTH];
@@ -202,7 +231,7 @@ int dhcp_message_append_option_hostname(sd_dhcp_message *message, uint8_t flags,
         buf[1] = is_client ? 0 : 255;
         buf[2] = is_client ? 0 : 255;
 
-        r = dns_name_to_wire_format(hostname, buf + 3, sizeof(buf) - 3, false);
+        r = dns_name_to_wire_format(fqdn, buf + 3, sizeof(buf) - 3, false);
         if (r <= 0)
                 return r;
 
@@ -216,6 +245,9 @@ int dhcp_message_append_option_vendor_specific(sd_dhcp_message *message, Hashmap
 
         if (hashmap_isempty(options))
                 return 0; /* No data to append. */
+
+        if (message_has_option(message, SD_DHCP_OPTION_VENDOR_SPECIFIC))
+                return -EEXIST;
 
         _cleanup_(iovec_done) struct iovec iov = {};
         r = dhcp_options_build(options, &iov);
@@ -255,7 +287,7 @@ int dhcp_message_get_option(sd_dhcp_message *message, uint8_t code, size_t lengt
 
         sd_dhcp_option *o = hashmap_get(message->options, UINT_TO_PTR(code));
         if (!o)
-                return -ENOENT;
+                return -ENODATA;
 
         /* If we found a option with expected data length, then ignore all other options with the same code.
          * RFC 3396 states that a long option may be stored in multiple TLVs with same option code. So, if an
@@ -290,24 +322,18 @@ int dhcp_message_get_option(sd_dhcp_message *message, uint8_t code, size_t lengt
         return 0;
 }
 
-int dhcp_message_get_option_alloc(sd_dhcp_message *message, uint8_t code, size_t chunk, size_t *ret_n_chunk, void **ret_data) {
+int dhcp_message_get_option_alloc(sd_dhcp_message *message, uint8_t code, size_t *ret_size, void **ret_data) {
         assert(message);
 
         /* Mainly for reading options with variable length. */
 
-        if (chunk == 0)
-                chunk = 1;
-
         sd_dhcp_option *o = hashmap_get(message->options, UINT_TO_PTR(code));
         if (!o)
-                return -ENOENT;
+                return -ENODATA;
 
         size_t len = 0;
         LIST_FOREACH(option, i, o)
                 len += i->length;
-
-        if (len % chunk != 0)
-                return -EBADMSG;
 
         if (ret_data) {
                 /* Here, we allocate one extra byte, to make the result can be used as a string. Of course,
@@ -325,28 +351,31 @@ int dhcp_message_get_option_alloc(sd_dhcp_message *message, uint8_t code, size_t
                 /* Safety check: if the caller doesn't want to know the size of what we just read it will
                  * rely on the trailing NUL byte. But if there's an embedded NUL byte, then we should refuse
                  * operation as otherwise there'd be ambiguity about what we just read. */
-                if (!ret_n_chunk && memchr(data, 0, len))
+                if (!ret_size && memchr(data, 0, len))
                         return -EBADMSG;
 
                 *ret_data = TAKE_PTR(data);
         }
-        if (ret_n_chunk)
-                *ret_n_chunk = len / chunk;
+        if (ret_size)
+                *ret_size = len; /* Here, we may set 0, the caller may need to check it. */
         return 0;
 }
 
 int dhcp_message_get_option_alloc_iovec(sd_dhcp_message *message, uint8_t code, struct iovec *ret) {
         assert(ret);
-        return dhcp_message_get_option_alloc(message, code, /* chunk= */ 1, &ret->iov_len, &ret->iov_base);
+        return dhcp_message_get_option_alloc(message, code, &ret->iov_len, &ret->iov_base);
 }
 
 int dhcp_message_get_option_string(sd_dhcp_message *message, uint8_t code, char **ret) {
         int r;
 
         _cleanup_free_ char *s = NULL;
-        r = dhcp_message_get_option_alloc(message, code, /* chunk= */ 1, /* ret_n_chunk= */ NULL, (void**) &s);
+        r = dhcp_message_get_option_alloc(message, code, /* ret_size= */ NULL, (void**) &s);
         if (r < 0)
                 return r;
+
+        if (isempty(s))
+                return -ENODATA;
 
         if (!utf8_is_valid(s) || string_has_cc(s, /* ok= */ NULL))
                 return -EBADMSG;
@@ -386,40 +415,42 @@ int dhcp_message_get_option_address(sd_dhcp_message *message, uint8_t code, stru
 }
 
 int dhcp_message_get_option_addresses(sd_dhcp_message *message, uint8_t code, size_t *ret_n_addr, struct in_addr **ret_addr) {
-        return dhcp_message_get_option_alloc(message, code, sizeof(struct in_addr), ret_n_addr, (void**) ret_addr);
-}
-
-int dhcp_message_get_option_sip_addresses(sd_dhcp_message *message, size_t *ret_n_addr, struct in_addr **ret_addr) {
         int r;
 
         _cleanup_free_ uint8_t *buf = NULL;
         size_t len;
-        r = dhcp_message_get_option_alloc(message, SD_DHCP_OPTION_SIP_SERVER, /* chunk= */ 1, &len, (void**) &buf);
+        r = dhcp_message_get_option_alloc(message, code, &len, (void**) &buf);
         if (r < 0)
                 return r;
 
-        if (len < 1)
+        if (code == SD_DHCP_OPTION_SIP_SERVER) {
+                if (len <= 0)
+                        return -EBADMSG;
+
+                if (buf[0] != 1) /* 'enc' field, 0: domains, 1: addresses */
+                        return -ENODATA;
+
+                len--;
+        }
+
+        if (len % sizeof(struct in_addr) != 0)
                 return -EBADMSG;
 
-        if (buf[0] != 1) /* 'enc' field, 0: domains, 1: addresses */
-                return -ENOENT;
-
-        if ((len - 1) % sizeof(struct in_addr) != 0)
-                return -EBADMSG;
-
-        size_t n_addr = (len - 1) / sizeof(struct in_addr);
-        if (n_addr <= 0)
-                return -ENOENT;
+        size_t n = len / sizeof(struct in_addr);
+        if (n <= 0)
+                return -ENODATA;
 
         if (ret_addr) {
-                struct in_addr *addr = newdup(struct in_addr, buf + 1, n_addr);
-                if (!addr)
-                        return -ENOMEM;
-
-                *ret_addr = addr;
+                if (code == SD_DHCP_OPTION_SIP_SERVER) {
+                        struct in_addr *addr = newdup(struct in_addr, buf + 1, n);
+                        if (!addr)
+                                return -ENOMEM;
+                        *ret_addr = addr;
+                } else
+                        *ret_addr = (struct in_addr*) TAKE_PTR(buf);
         }
         if (ret_n_addr)
-                *ret_n_addr = n_addr;
+                *ret_n_addr = n;
         return 0;
 }
 
@@ -428,9 +459,12 @@ int dhcp_message_get_option_parameter_request_list(sd_dhcp_message *message, Set
 
         _cleanup_free_ uint8_t *buf = NULL;
         size_t len;
-        r = dhcp_message_get_option_alloc(message, SD_DHCP_OPTION_PARAMETER_REQUEST_LIST, /* chunk= */ 1, &len, (void**) &buf);
+        r = dhcp_message_get_option_alloc(message, SD_DHCP_OPTION_PARAMETER_REQUEST_LIST, &len, (void**) &buf);
         if (r < 0)
                 return r;
+
+        if (len <= 0)
+                return -ENODATA;
 
         if (!ret)
                 return 0;
@@ -446,54 +480,12 @@ int dhcp_message_get_option_parameter_request_list(sd_dhcp_message *message, Set
         return 0;
 }
 
-static int normalize_hostname(const char *name, char **ret) {
-        int r;
-
-        assert(name);
-        assert(ret);
-
-        _cleanup_free_ char *normalized = NULL;
-        r = dns_name_normalize(name, /* flags= */ 0, &normalized);
-        if (r < 0)
-                return r;
-
-        if (is_localhost(normalized))
-                return -EINVAL;
-
-        if (dns_name_is_root(normalized))
-                return -EINVAL;
-
-        *ret = TAKE_PTR(normalized);
-        return 0;
-}
-
-static int dhcp_message_get_option_hostname_impl(sd_dhcp_message *message, char **ret) {
-        int r;
-
-        _cleanup_free_ char *name = NULL;
-        r = dhcp_message_get_option_string(message, SD_DHCP_OPTION_HOST_NAME, &name);
-        if (r < 0)
-                return r;
-
-        _cleanup_free_ char *normalized = NULL;
-        r = normalize_hostname(name, &normalized);
-        if (r < 0)
-                return r;
-
-        if (!dns_name_is_single_label(normalized))
-                return -EBADMSG;
-
-        if (ret)
-                *ret = TAKE_PTR(normalized);
-        return 0;
-}
-
-static int dhcp_message_get_option_fqdn(sd_dhcp_message *message, uint8_t *ret_flags, char **ret) {
+int dhcp_message_get_option_fqdn(sd_dhcp_message *message, uint8_t *ret_flags, char **ret_fqdn) {
         int r;
 
         _cleanup_free_ uint8_t *buf = NULL;
         size_t len;
-        r = dhcp_message_get_option_alloc(message, SD_DHCP_OPTION_FQDN, /* chunk= */ 1, &len, (void**) &buf);
+        r = dhcp_message_get_option_alloc(message, SD_DHCP_OPTION_FQDN, &len, (void**) &buf);
         if (r < 0)
                 return r;
 
@@ -511,31 +503,18 @@ static int dhcp_message_get_option_fqdn(sd_dhcp_message *message, uint8_t *ret_f
         if (r < 0)
                 return r;
 
-        _cleanup_free_ char *normalized = NULL;
-        r = normalize_hostname(name, &normalized);
-        if (r < 0)
-                return r;
+        /* Here, we do not validate/normalize the hostname, but check only if the string is safe. */
+
+        if (isempty(name))
+                return -ENODATA;
+
+        if (!utf8_is_valid(name) || string_has_cc(name, /* ok= */ NULL))
+                return -EBADMSG;
 
         if (ret_flags)
                 *ret_flags = buf[0];
-        if (ret)
-                *ret = TAKE_PTR(normalized);
-        return 0;
-}
-
-int dhcp_message_get_option_hostname(sd_dhcp_message *message, uint8_t *ret_flags, char **ret) {
-        int r;
-
-        /* FQDN option takes precedence. */
-        if (dhcp_message_get_option_fqdn(message, ret_flags, ret) >= 0)
-                return 0;
-
-        r = dhcp_message_get_option_hostname_impl(message, ret);
-        if (r < 0)
-                return r;
-
-        if (ret_flags)
-                *ret_flags = 0;
+        if (ret_fqdn)
+                *ret_fqdn = TAKE_PTR(name);
         return 0;
 }
 
@@ -551,6 +530,9 @@ int dhcp_message_get_option_vendor_specific(sd_dhcp_message *message, Hashmap **
         r = dhcp_options_parse(&options, &iov);
         if (r < 0)
                 return r;
+
+        if (hashmap_isempty(options))
+                return -ENODATA;
 
         if (ret)
                 *ret = TAKE_PTR(options);
@@ -579,6 +561,9 @@ int dhcp_message_get_option_user_class(sd_dhcp_message *message, struct iovec_wr
 
                 iovec_inc(&i, len);
         }
+
+        if (iovw_isempty(&iovw))
+                return -ENODATA;
 
         if (ret)
                 *ret = TAKE_STRUCT(iovw);

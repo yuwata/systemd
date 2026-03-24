@@ -8,6 +8,7 @@
 #include "sd-dhcp-lease.h"
 
 #include "dhcp-client-id-internal.h"
+#include "dhcp-message.h"
 #include "dhcp-option.h"
 #include "sd-forward.h"
 #include "list.h"
@@ -28,6 +29,8 @@ struct sd_dhcp_raw_option {
 
 struct sd_dhcp_lease {
         unsigned n_ref;
+
+        sd_dhcp_message *message;
 
         /* each 0 if unset */
         usec_t t1;

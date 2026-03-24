@@ -38,14 +38,13 @@ int dhcp_message_append_option_u16(sd_dhcp_message *message, uint8_t code, uint1
 int dhcp_message_append_option_be32(sd_dhcp_message *message, uint8_t code, be32_t data);
 int dhcp_message_append_option_address(sd_dhcp_message *message, uint8_t code, const struct in_addr *addr);
 int dhcp_message_append_option_addresses(sd_dhcp_message *message, uint8_t code, size_t n_addr, const struct in_addr *addr);
-int dhcp_message_append_option_sip_addresses(sd_dhcp_message *message, size_t n_addr, const struct in_addr *addr);
 int dhcp_message_append_option_parameter_request_list(sd_dhcp_message *message, Set *prl);
-int dhcp_message_append_option_hostname(sd_dhcp_message *message, uint8_t flags, bool is_client, const char *hostname);
+int dhcp_message_append_option_fqdn(sd_dhcp_message *message, uint8_t flags, bool is_client, const char *fqdn);
 int dhcp_message_append_option_vendor_specific(sd_dhcp_message *message, Hashmap *options);
 int dhcp_message_append_option_user_class(sd_dhcp_message *message, const struct iovec_wrapper *user_class);
 
 int dhcp_message_get_option(sd_dhcp_message *message, uint8_t code, size_t length, void *ret);
-int dhcp_message_get_option_alloc(sd_dhcp_message *message, uint8_t code, size_t chunk, size_t *ret_n_chunk, void **ret_data);
+int dhcp_message_get_option_alloc(sd_dhcp_message *message, uint8_t code, size_t *ret_size, void **ret_data);
 int dhcp_message_get_option_alloc_iovec(sd_dhcp_message *message, uint8_t code, struct iovec *ret);
 int dhcp_message_get_option_string(sd_dhcp_message *message, uint8_t code, char **ret);
 int dhcp_message_get_option_flag(sd_dhcp_message *message, uint8_t code);
@@ -54,9 +53,8 @@ int dhcp_message_get_option_u16(sd_dhcp_message *message, uint8_t code, uint16_t
 int dhcp_message_get_option_be32(sd_dhcp_message *message, uint8_t code, be32_t *ret);
 int dhcp_message_get_option_address(sd_dhcp_message *message, uint8_t code, struct in_addr *ret);
 int dhcp_message_get_option_addresses(sd_dhcp_message *message, uint8_t code, size_t *ret_n_addr, struct in_addr **ret_addr);
-int dhcp_message_get_option_sip_addresses(sd_dhcp_message *message, size_t *ret_n_addr, struct in_addr **ret_addr);
 int dhcp_message_get_option_parameter_request_list(sd_dhcp_message *message, Set **ret);
-int dhcp_message_get_option_hostname(sd_dhcp_message *message, uint8_t *ret_flags, char **ret);
+int dhcp_message_get_option_fqdn(sd_dhcp_message *message, uint8_t *ret_flags, char **ret_fqdn);
 int dhcp_message_get_option_vendor_specific(sd_dhcp_message *message, Hashmap **ret);
 int dhcp_message_get_option_user_class(sd_dhcp_message *message, struct iovec_wrapper *ret);
 
