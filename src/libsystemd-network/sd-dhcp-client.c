@@ -1392,6 +1392,151 @@ static int client_enter_bound(sd_dhcp_client *client, int notify_event) {
         return client_enter_bound_now(client, notify_event);
 }
 
+static int client_process_bootreply(sd_dhcp_client *client, sd_dhcp_message *message) {
+        int r;
+
+        assert(client);
+        assert(message);
+
+        log_dhcp_client(client, "BOOTREPLY");
+
+        /* prepare lease here. */
+
+        return client_enter_bound_now(client, SD_DHCP_CLIENT_EVENT_IP_ACQUIRE);
+}
+
+static int client_process_nak(sd_dhcp_client *client, sd_dhcp_message *message) {
+        int r;
+
+        assert(client);
+        assert(message);
+
+        if (!IN_SET(client->state, DHCP_STATE_REBOOTING, DHCP_STATE_REQUESTING, DHCP_STATE_RENEWING, DHCP_STATE_REBINDING)) {
+                log_dhcp_client(client, "Received unexpected DHCPNAK, ignoring.");
+                return 0;
+        }
+
+        struct in_addr a;
+        r = dhcp_message_get_option_address(message, SD_DHCP_OPTION_SERVER_IDENTIFIER, &a);
+        if (r < 0) {
+                log_dhcp_client_errno(client, r, "Failed to get Server Identifier option, ignoring: %m");
+                return 0;
+        }
+
+        if (client->lease && client->lease->server_address != a.s_addr) {
+                log_dhcp_client(client, "Received DHCPNAK from unexpected server (%s), ignoring.", IN4_ADDR_TO_STRING(&a));
+                return 0;
+        }
+
+        _cleanup_free_ char *e = NULL;
+        (void) dhcp_message_get_option_string(message, SD_DHCP_OPTION_ERROR_MESSAGE, &e);
+        log_dhcp_client(client, "Received DHCPNAK: %s", strna(e));
+        return client_restart(client);
+}
+
+static int client_process_ack(sd_dhcp_client *client, sd_dhcp_message *message) {
+        int r;
+
+        assert(client);
+        assert(message);
+
+        switch (client->state) {
+        case DHCP_DISCOVER:
+                if (!client->rapid_commit) {
+                        log_dhcp_client(client, "Received unexpected DHCPACK, ignoring.");
+                        return 0;
+                }
+
+                r = dhcp_message_get_option_flag(message, SD_DHCP_OPTION_RAPID_COMMIT);
+                if (r < 0) {
+                        log_dhcp_client_errno(client, r, "Failed to get Rapid Commit option, ignoring: %m");
+                        return 0;
+                }
+                break;
+        case DHCP_STATE_REBOOTING:
+        case DHCP_STATE_REQUESTING:
+        case DHCP_STATE_RENEWING:
+        case DHCP_STATE_REBINDING:
+                break;
+        default:
+                log_dhcp_client(client, "Received unexpected DHCPACK, ignoring.");
+                return 0;
+        }
+
+        /* prepare lease here.
+        dhcp_lease_set_timestamp(lease, timestamp);
+
+        if (!client->lease)
+                r = SD_DHCP_CLIENT_EVENT_IP_ACQUIRE;
+        else if (lease_equal(client->lease, lease))
+                r = SD_DHCP_CLIENT_EVENT_RENEW;
+        else
+                r = SD_DHCP_CLIENT_EVENT_IP_CHANGE;
+
+        dhcp_lease_unref_and_replace(client->lease, lease);
+        */
+
+        log_dhcp_client(client, "ACK");
+        return client_enter_bound(client, r);
+}
+
+static int client_process_offer(sd_dhcp_client *client, sd_dhcp_message *message) {
+        int r;
+
+        assert(client);
+        assert(message);
+
+        if (client->state != DHCP_STATE_SELECTING) {
+                log_dhcp_client(client, "Received unexpected DHCPOFFER, ignoring.");
+                return 0;
+        }
+
+        /* prepare lease here. */
+
+        client_notify(client, SD_DHCP_CLIENT_EVENT_SELECTING);
+
+        log_dhcp_client(client, "OFFER");
+        return client_enter_requesting(client);
+}
+
+static int client_parse_dhcp_message(sd_dhcp_client *client, const struct iovec *iov) {
+        assert(client);
+        assert(iov);
+
+        _cleanup_(sd_dhcp_message_unrefp) sd_dhcp_message *message = NULL;
+        r = dhcp_message_parse(
+                        iov,
+                        BOOTREPLY,
+                        &client->xid,
+                        client->arp_type,
+                        &client->hw_addr,
+                        &message);
+        if (r < 0)
+                return r;
+
+        if (client->bootp)
+                return client_process_bootreply(client, message);
+
+        uint8_t type;
+        r = dhcp_message_get_option_u8(message, SD_DHCP_OPTION_MESSAGE_TYPE, &type);
+        if (r < 0) {
+                log_dhcp_client_errno(client, r, "Failed to get Message Type option, ignoring: %m");
+                return 0;
+        }
+
+        switch (type) {
+        case DHCP_NAK:
+                return client_process_nak(client, message);
+        case DHCP_ACK:
+                return client_process_ack(client, message);
+        case DHCP_OFFER:
+                return client_process_offer(client, message);
+        default:
+                log_dhcp_client(client, "Received DHCP message with unexpected message type (%u), ignoring.", type);
+                return 0;
+        }
+}
+
 static int client_verify_message_header(sd_dhcp_client *client, DHCPMessage *message, size_t len) {
         const uint8_t *expected_chaddr = NULL;
         uint8_t expected_hlen = 0;
@@ -1437,7 +1582,7 @@ static int client_verify_message_header(sd_dhcp_client *client, DHCPMessage *mes
         return 0;
 }
 
-static int client_handle_message(sd_dhcp_client *client, DHCPMessage *message, size_t len, const triple_timestamp *timestamp) {
+static int client_handle_message(sd_dhcp_client *client, void *message, size_t len, const triple_timestamp *timestamp) {
         DHCP_CLIENT_DONT_DESTROY(client);
         int r;
 
@@ -1505,23 +1650,11 @@ int client_receive_message_udp(
                 void *userdata) {
 
         sd_dhcp_client *client = ASSERT_PTR(userdata);
-        _cleanup_free_ DHCPMessage *message = NULL;
-        ssize_t len, buflen;
-        /* This needs to be initialized with zero. See #20741.
-         * The issue is fixed on glibc-2.35 (8fba672472ae0055387e9315fc2eddfa6775ca79). */
-        CMSG_BUFFER_TYPE(CMSG_SPACE_TIMEVAL) control = {};
-        struct iovec iov;
-        struct msghdr msg = {
-                .msg_iov = &iov,
-                .msg_iovlen = 1,
-                .msg_control = &control,
-                .msg_controllen = sizeof(control),
-        };
         int r;
 
         assert(s);
 
-        buflen = next_datagram_size_fd(fd);
+        ssize_t buflen = next_datagram_size_fd(fd);
         if (ERRNO_IS_NEG_TRANSIENT(buflen) || ERRNO_IS_NEG_DISCONNECT(buflen))
                 return 0;
         if (buflen < 0) {
@@ -1529,13 +1662,22 @@ int client_receive_message_udp(
                 return 0;
         }
 
-        message = malloc0(buflen);
+        _cleanup_free_ void *buffer = malloc0(buflen);
         if (!message)
                 return -ENOMEM;
 
-        iov = IOVEC_MAKE(message, buflen);
+        /* This needs to be initialized with zero. See #20741.
+         * The issue is fixed on glibc-2.35 (8fba672472ae0055387e9315fc2eddfa6775ca79). */
+        CMSG_BUFFER_TYPE(CMSG_SPACE_TIMEVAL) control = {};
+        struct iovec iov = IOVEC_MAKE(message, buflen);
+        struct msghdr msg = {
+                .msg_iov = &iov,
+                .msg_iovlen = 1,
+                .msg_control = &control,
+                .msg_controllen = sizeof(control),
+        };
 
-        len = recvmsg_safe(fd, &msg, MSG_DONTWAIT);
+        ssize_t len = recvmsg_safe(fd, &msg, MSG_DONTWAIT);
         if (ERRNO_IS_NEG_TRANSIENT(len) || ERRNO_IS_NEG_DISCONNECT(len))
                 return 0;
         if (len < 0) {
@@ -1544,7 +1686,7 @@ int client_receive_message_udp(
         }
 
         log_dhcp_client(client, "Received message from UDP socket, processing.");
-        r = client_handle_message(client, message, len, TRIPLE_TIMESTAMP_FROM_CMSG(&msg));
+        r = client_handle_message(client, buffer, len, TRIPLE_TIMESTAMP_FROM_CMSG(&msg));
         if (r < 0)
                 client_stop(client, r);
 
