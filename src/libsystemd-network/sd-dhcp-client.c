@@ -1139,6 +1139,41 @@ static int client_handle_offer_or_rapid_ack(sd_dhcp_client *client, DHCPMessage 
         return 0;
 }
 
+static usec_t client_get_ipv6_only_preferred_usec(sd_dhcp_client *client) {
+        assert(client);
+
+        if (!client->lease)
+                return 0;
+
+        /* RFC 8925 section 3.2
+         * If the client did not include the IPv6-Only Preferred option code in the Parameter Request List in
+         * the DHCPDISCOVER or DHCPREQUEST message, it MUST ignore the IPv6-Only Preferred option in any
+         * messages received from the server. */
+        if (client->anonymize || !client_request_contains(client, SD_DHCP_OPTION_IPV6_ONLY_PREFERRED))
+                return 0;
+
+        if (client->lease->ipv6_only_preferred_usec > 0)
+                return client->lease->ipv6_only_preferred_usec;
+
+        if (!client->lease->message)
+                return 0;
+
+        usec_t t;
+        if (dhcp_message_get_option_sec(
+                            client->lease->message,
+                            SD_DHCP_OPTION_IPV6_ONLY_PREFERRED,
+                            /* max_as_infinity= */ false,
+                            &t) < 0)
+                return 0;
+
+        /* RFC 8925 section 3.4
+         * MIN_V6ONLY_WAIT: The lower boundary for V6ONLY_WAIT. */
+        if (t < MIN_V6ONLY_WAIT_USEC && !network_test_mode_enabled())
+                return MIN_V6ONLY_WAIT_USEC;
+
+        return t;
+}
+
 static int client_enter_requesting(sd_dhcp_client *client) {
         assert(client);
         assert(client->lease);
@@ -1156,14 +1191,14 @@ static int client_enter_requesting(sd_dhcp_client *client) {
 
                 log_dhcp_client(client,
                                 "Received an OFFER with IPv6-only preferred option, delaying to send REQUEST with %s.",
-                                FORMAT_TIMESPAN(client->lease->ipv6_only_preferred_usec, USEC_PER_SEC));
+                                FORMAT_TIMESPAN(t, USEC_PER_SEC));
         }
 
         return event_reset_time_relative(
                         client->event,
                         &client->timeout_resend,
                         CLOCK_BOOTTIME,
-                        client->lease->ipv6_only_preferred_usec,
+                        t,
                         /* accuracy= */ 0,
                         client_timeout_resend,
                         client,
