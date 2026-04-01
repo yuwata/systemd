@@ -956,12 +956,6 @@ static usec_t client_get_ipv6_only_preferred_usec(sd_dhcp_client *client) {
         if (client->anonymize || !client_request_contains(client, SD_DHCP_OPTION_IPV6_ONLY_PREFERRED))
                 return 0;
 
-        if (client->lease->ipv6_only_preferred_usec > 0)
-                return client->lease->ipv6_only_preferred_usec;
-
-        if (!client->lease->message)
-                return 0;
-
         usec_t t;
         if (dhcp_message_get_option_sec(
                             client->lease->message,
