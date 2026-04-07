@@ -12,6 +12,8 @@ libsystemd_network_sources = files(
         'dhcp-relay-interface.c',
         'dhcp-relay-upstream.c',
         'dhcp-route.c',
+        'dhcp-server-request.c',
+        'dhcp-server-send.c',
         'dhcp6-network.c',
         'dhcp6-option.c',
         'dhcp6-protocol.c',
@@ -143,9 +145,6 @@ executables += [
         },
         network_fuzz_template + {
                 'sources' : files('fuzz-dhcp-server.c'),
-        },
-        network_fuzz_template + {
-                'sources' : files('fuzz-dhcp-server-relay.c'),
         },
         network_fuzz_template + {
                 'sources' : files('fuzz-lldp-rx.c'),
