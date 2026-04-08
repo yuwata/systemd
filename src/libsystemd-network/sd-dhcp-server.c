@@ -10,7 +10,6 @@
 
 #include "alloc-util.h"
 #include "dhcp-network.h"
-#include "dhcp-option.h"
 #include "dhcp-server-internal.h"
 #include "dhcp-server-lease-internal.h"
 #include "dhcp-server-request.h"
