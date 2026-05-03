@@ -92,3 +92,5 @@ CONFIG_PARSER_PROTOTYPE(config_parse_duid_rawdata);
 CONFIG_PARSER_PROTOTYPE(config_parse_manager_duid_rawdata);
 CONFIG_PARSER_PROTOTYPE(config_parse_network_duid_rawdata);
 CONFIG_PARSER_PROTOTYPE(config_parse_uplink);
+CONFIG_PARSER_PROTOTYPE(config_parse_dhcp_option);
+CONFIG_PARSER_PROTOTYPE(config_parse_dhcp_option_tlv);

@@ -21,10 +21,12 @@
 #include "daemon-util.h"
 #include "device-private.h"
 #include "device-util.h"
+#include "dhcp-relay-internal.h"
 #include "env-util.h"
 #include "errno-util.h"
 #include "fd-util.h"
 #include "initrd-util.h"
+#include "iovec-util.h"
 #include "mount-util.h"
 #include "netlink-internal.h"
 #include "netlink-util.h"
@@ -702,6 +704,7 @@ int manager_new(Manager **ret, bool test_mode) {
                 .dhcp6_duid.type = DUID_TYPE_EN,
                 .duid_product_uuid.type = DUID_TYPE_UUID,
                 .dhcp_server_persist_leases = DHCP_SERVER_PERSIST_LEASES_YES,
+                .dhcp_relay_extra_options = TLV_INIT(TLV_DHCP4_RELAY_AGENT_INFORMATION),
                 .serialization_fd = -EBADF,
                 .ip_forwarding = { -1, -1, },
 #if ENABLE_SYSCTL_BPF
@@ -759,6 +762,10 @@ Manager* manager_free(Manager *m) {
         sd_netlink_unref(m->genl);
         sd_netlink_unref(m->nfnl);
         sd_resolve_unref(m->resolve);
+
+        iovec_done(&m->dhcp_relay_remote_id);
+        tlv_done(&m->dhcp_relay_extra_options);
+        sd_dhcp_relay_unref(m->dhcp_relay);
 
         m->routes = set_free(m->routes);
 

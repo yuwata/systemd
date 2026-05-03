@@ -12,6 +12,7 @@
 #include "network-util.h"
 #include "networkd-bridge-vlan.h"
 #include "networkd-dhcp-common.h"
+#include "networkd-dhcp-relay.h"
 #include "networkd-dhcp-server.h"
 #include "networkd-dhcp4.h"
 #include "networkd-dhcp6.h"
@@ -236,6 +237,15 @@ typedef struct Network {
         bool dhcp_server_rapid_commit;
         DHCPServerPersistLeases dhcp_server_persist_leases;
         char *dhcp_server_local_lease_domain;
+
+        /* DHCP Relay Agent Support */
+        DHCPRelayInterfaceMode dhcp_relay;
+        struct in_addr dhcp_relay_agent_address;
+        struct in_addr dhcp_relay_gateway_address;
+        struct iovec dhcp_relay_circuit_id;
+        struct iovec dhcp_relay_vss;
+        TLV dhcp_relay_extra_options;
+        int dhcp_relay_interface_priority;
 
         /* link-local addressing support */
         AddressFamily link_local;

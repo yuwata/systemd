@@ -7,6 +7,7 @@
 #include "conf-files.h"
 #include "conf-parser.h"
 #include "in-addr-util.h"
+#include "iovec-util.h"
 #include "net-condition.h"
 #include "netdev/macvlan.h"
 #include "netif-sriov.h"
@@ -443,6 +444,8 @@ int network_load_one(Manager *manager, OrderedHashmap **networks, const char *fi
                 .dhcp_server_vendor_options = TLV_INIT(TLV_DHCP4_VENDOR_SPECIFIC_INFORMATION),
                 .dhcp_server_persist_leases = _DHCP_SERVER_PERSIST_LEASES_INVALID,
 
+                .dhcp_relay_extra_options = TLV_INIT(TLV_DHCP4_RELAY_AGENT_INFORMATION),
+
                 .router_lifetime_usec = RADV_DEFAULT_ROUTER_LIFETIME_USEC,
                 .router_dns_lifetime_usec = RADV_DEFAULT_VALID_LIFETIME_USEC,
                 .router_emit_dns = true,
@@ -779,6 +782,11 @@ static Network *network_free(Network *network) {
         tlv_done(&network->dhcp_server_extra_options);
         tlv_done(&network->dhcp_server_vendor_options);
         free(network->dhcp_server_local_lease_domain);
+
+        /* DHCP relay agent */
+        iovec_done(&network->dhcp_relay_circuit_id);
+        iovec_done(&network->dhcp_relay_vss);
+        tlv_done(&network->dhcp_relay_extra_options);
 
         /* DHCP client */
         free(network->dhcp_vendor_class_identifier);

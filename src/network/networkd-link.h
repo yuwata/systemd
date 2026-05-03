@@ -145,6 +145,8 @@ typedef struct Link {
 
         sd_dhcp_server *dhcp_server;
 
+        sd_dhcp_relay_interface *dhcp_relay_interface;
+
         sd_ndisc *ndisc;
         sd_event_source *ndisc_expire;
         Hashmap *ndisc_routers_by_sender;

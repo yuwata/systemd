@@ -16,6 +16,7 @@
 #include "extract-word.h"
 #include "hexdecoct.h"
 #include "in-addr-prefix-util.h"
+#include "iovec-util.h"
 #include "networkd-dhcp-common.h"
 #include "networkd-dhcp-prefix-delegation.h"
 #include "networkd-link.h"
@@ -1356,5 +1357,171 @@ int config_parse_uplink(
         /* Note, if uplink_name is set, then uplink_index will be ignored. So, the below does not mean
          * an uplink interface will be selected automatically. */
         *index = UPLINK_INDEX_AUTO;
+        return 0;
+}
+
+int config_parse_dhcp_option(
+                const char *unit,
+                const char *filename,
+                unsigned line,
+                const char *section,
+                unsigned section_line,
+                const char *lvalue,
+                int ltype,
+                const char *rvalue,
+                void *data,
+                void *userdata) {
+
+        struct iovec *iov = ASSERT_PTR(data);
+        bool check_length = ltype;
+        int r;
+
+        if (isempty(rvalue)) {
+                iovec_done(iov);
+                return 0;
+        }
+
+        _cleanup_free_ char *word = NULL;
+        const char *p = rvalue;
+        r = extract_first_word(&p, &word, ":", 0);
+        if (r == -ENOMEM)
+                return log_oom();
+        if (r <= 0 || isempty(p))
+                return log_syntax_parse_error(unit, filename, line, r, lvalue, rvalue);
+
+        DHCPOptionDataType type = dhcp_option_data_type_from_string(word);
+        if (type < 0)
+                return log_syntax_parse_error(unit, filename, line, type, lvalue, rvalue);
+
+        switch (type) {
+        case DHCP_OPTION_DATA_UINT8:{
+                uint8_t u;
+
+                r = safe_atou8(p, &u);
+                if (r < 0)
+                        return log_syntax_parse_error(unit, filename, line, r, lvalue, rvalue);
+
+                r = iovec_done_and_memdup(iov, &IOVEC_MAKE(&u, sizeof(u)));
+                if (r < 0)
+                        return log_oom();
+
+                return 1;
+        }
+        case DHCP_OPTION_DATA_UINT16:{
+                uint16_t u;
+
+                r = safe_atou16(p, &u);
+                if (r < 0)
+                        return log_syntax_parse_error(unit, filename, line, r, lvalue, rvalue);
+
+                u = htobe16(u);
+                r = iovec_done_and_memdup(iov, &IOVEC_MAKE(&u, sizeof(u)));
+                if (r < 0)
+                        return log_oom();
+
+                return 1;
+        }
+        case DHCP_OPTION_DATA_UINT32: {
+                uint32_t u;
+
+                r = safe_atou32(p, &u);
+                if (r < 0)
+                        return log_syntax_parse_error(unit, filename, line, r, lvalue, rvalue);
+
+                u = htobe32(u);
+                r = iovec_done_and_memdup(iov, &IOVEC_MAKE(&u, sizeof(u)));
+                if (r < 0)
+                        return log_oom();
+
+                return 1;
+        }
+        case DHCP_OPTION_DATA_IPV4ADDRESS: {
+                union in_addr_union a;
+
+                r = in_addr_from_string(AF_INET, p, &a);
+                if (r < 0)
+                        return log_syntax_parse_error(unit, filename, line, r, lvalue, rvalue);
+
+                r = iovec_done_and_memdup(iov, &IOVEC_MAKE(&a.in, sizeof(a.in)));
+                if (r < 0)
+                        return log_oom();
+
+                return 1;
+        }
+        case DHCP_OPTION_DATA_IPV6ADDRESS: {
+                union in_addr_union a;
+
+                r = in_addr_from_string(AF_INET6, p, &a);
+                if (r < 0)
+                        return log_syntax_parse_error(unit, filename, line, r, lvalue, rvalue);
+
+                r = iovec_done_and_memdup(iov, &IOVEC_MAKE(&a.in6, sizeof(a.in6)));
+                if (r < 0)
+                        return log_oom();
+
+                return 1;
+        }
+        case DHCP_OPTION_DATA_STRING: {
+                _cleanup_free_ char *s = NULL;
+                ssize_t sz = cunescape(p, UNESCAPE_ACCEPT_NUL, &s);
+                if (sz < 0)
+                        return log_syntax_parse_error(unit, filename, line, sz, lvalue, rvalue);
+                if (check_length && sz > UINT8_MAX)
+                        return log_syntax_parse_error(unit, filename, line, 0, lvalue, rvalue);
+
+                iovec_done(iov);
+                *iov = IOVEC_MAKE(TAKE_PTR(s), sz);
+                return 1;
+        }
+        default:
+                return -EINVAL;
+        }
+}
+
+int config_parse_dhcp_option_tlv(
+                const char *unit,
+                const char *filename,
+                unsigned line,
+                const char *section,
+                unsigned section_line,
+                const char *lvalue,
+                int ltype,
+                const char *rvalue,
+                void *data,
+                void *userdata) {
+
+        TLV *options = ASSERT_PTR(data);
+        int r;
+
+        if (isempty(rvalue)) {
+                tlv_done(options);
+                return 0;
+        }
+
+        _cleanup_free_ char *word = NULL;
+        const char *p = word;
+        r = extract_first_word(&p, &word, ":", 0);
+        if (r == -ENOMEM)
+                return log_oom();
+        if (r <= 0 || isempty(p))
+                return log_syntax_parse_error(unit, filename, line, r, lvalue, rvalue);
+
+        uint8_t code;
+        r = safe_atou8(word, &code);
+        if (r < 0)
+                return log_syntax_parse_error(unit, filename, line, r, lvalue, rvalue);
+        if (code < 1 || code >= UINT8_MAX)
+                return log_syntax_parse_error(unit, filename, line, 0, lvalue, rvalue);
+
+        _cleanup_(iovec_done) struct iovec iov = {};
+        r = config_parse_dhcp_option(unit, filename, line, section, section_line, lvalue, ltype, p, &iov, userdata);
+        if (r <= 0)
+                return r;
+
+        r = tlv_append_iov(options, code, &iov);
+        if (r < 0)
+                log_syntax(unit, LOG_WARNING, filename, line, r,
+                           "Failed to store '%s=%s', ignoring assignment: %m", lvalue, rvalue);
+
         return 0;
 }

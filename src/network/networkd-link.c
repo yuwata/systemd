@@ -10,6 +10,7 @@
 
 #include "sd-bus.h"
 #include "sd-dhcp-client.h"
+#include "sd-dhcp-relay.h"
 #include "sd-dhcp-server.h"
 #include "sd-dhcp6-client.h"
 #include "sd-dhcp6-lease.h"
@@ -239,6 +240,8 @@ void link_dns_settings_clear(Link *link) {
 static void link_free_engines(Link *link) {
         if (!link)
                 return;
+
+        link->dhcp_relay_interface = sd_dhcp_relay_interface_unref(link->dhcp_relay_interface);
 
         link->dhcp_server = sd_dhcp_server_unref(link->dhcp_server);
 
