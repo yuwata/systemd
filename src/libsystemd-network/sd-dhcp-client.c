@@ -173,41 +173,73 @@ int sd_dhcp_client_set_mac(
         assert_return(!sd_dhcp_client_is_running(client), -EBUSY);
         assert_return(IN_SET(arp_type, ARPHRD_ETHER, ARPHRD_INFINIBAND, ARPHRD_RAWIP, ARPHRD_NONE), -EINVAL);
 
-        static const uint8_t default_eth_bcast[6] = { 0xff, 0xff, 0xff, 0xff, 0xff, 0xff },
-                        default_eth_hwaddr[6] = { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
+        static struct hw_addr_data default_eth_mac = {
+                .length = ETH_ALEN,
+                .ether = {{ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 }},
+        }, default_eth_bcast = {
+                .length = ETH_ALEN,
+                .ether = {{ 0xff, 0xff, 0xff, 0xff, 0xff, 0xff }},
+        }, default_ib_bcast = {
+                .length = INFINIBAND_ALEN,
+                .infiniband = {
+                        0x00, 0xff, 0xff, 0xff, 0xff, 0x12, 0x40, 0x1b,
+                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                        0xff, 0xff, 0xff, 0xff,
+                },
+        };
 
         switch (arp_type) {
+        case ARPHRD_ETHER:
+                assert_return(addr_len == ETH_ALEN, -EINVAL);
+                assert_return(hw_addr, -EINVAL);
+
+                if (!bcast_addr)
+                        bcast_addr = default_eth_bcast.bytes;
+                break;
+
+        case ARPHRD_INFINIBAND:
+                assert_return(addr_len == INFINIBAND_ALEN, -EINVAL);
+                assert_return(hw_addr, -EINVAL);
+
+                if (!bcast_addr)
+                        bcast_addr = default_ib_bcast.bytes;
+                break;
+
         case ARPHRD_RAWIP:
         case ARPHRD_NONE:
-                /* Linux cellular modem drivers (e.g. qmi_wwan) present a
-                 * network interface of type ARPHRD_RAWIP(519) or
-                 * ARPHRD_NONE(65534) when in point-to-point mode, but these
-                 * are not valid DHCP hardware-type values.
+                /* Linux cellular modem drivers (e.g. qmi_wwan) present a network interface of type
+                 * ARPHRD_RAWIP(519) or ARPHRD_NONE(65534) when in point-to-point mode, but these are not
+                 * valid DHCP hardware-type values.
                  *
-                 * Apparently, it's best to just pretend that these are ethernet
-                 * devices.  Other approaches have been tried, but resulted in
-                 * incompatibilities with some server software.  See
-                 * https://lore.kernel.org/netdev/cover.1228948072.git.inaky@linux.intel.com/
-                 */
+                 * Apparently, it's best to just pretend that these are ethernet devices. Other approaches
+                 * have been tried, but resulted in incompatibilities with some server software. See
+                 * https://lore.kernel.org/netdev/cover.1228948072.git.inaky@linux.intel.com/ */
                 arp_type = ARPHRD_ETHER;
                 if (addr_len == 0) {
-                        assert_cc(sizeof(default_eth_hwaddr) == ETH_ALEN);
-                        assert_cc(sizeof(default_eth_bcast) == ETH_ALEN);
-                        hw_addr = default_eth_hwaddr;
-                        bcast_addr = default_eth_bcast;
+                        /* If the sprcified hardware address length is 0, always use the default ones. */
                         addr_len = ETH_ALEN;
+                        hw_addr = default_eth_mac.bytes;
+                        bcast_addr = default_eth_bcast.bytes;
+                } else if (addr_len == ETH_ALEN) {
+                        /* If the sprcified hardware address length is 0, use the default ones when unspecified. */
+                        if (!hw_addr)
+                                hw_addr = default_eth_mac.bytes;
+                        if (!bcast_addr)
+                                bcast_addr = default_eth_bcast.bytes;
+                } else {
+                        /* Otherwise, user must specify valid addresses. */
+                        assert_return(hw_addr, -EINVAL);
+                        assert_return(bcast_addr, -EINVAL);
                 }
                 break;
-        }
 
-        assert_return(IN_SET(arp_type, ARPHRD_ETHER, ARPHRD_INFINIBAND), -EINVAL);
-        assert_return(hw_addr, -EINVAL);
-        assert_return(addr_len == (arp_type == ARPHRD_ETHER ? ETH_ALEN : INFINIBAND_ALEN), -EINVAL);
+        default:
+                assert_not_reached();
+        }
 
         client->arp_type = arp_type;
         hw_addr_set(&client->hw_addr, hw_addr, addr_len);
-        hw_addr_set(&client->bcast_addr, bcast_addr, bcast_addr ? addr_len : 0);
-
+        hw_addr_set(&client->bcast_addr, bcast_addr, addr_len);
         return 0;
 }
 
