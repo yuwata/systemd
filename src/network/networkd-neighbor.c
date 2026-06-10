@@ -16,7 +16,14 @@
 #include "set.h"
 #include "siphash24.h"
 #include "socket-util.h"
+#include "string-table.h"
 #include "string-util.h"
+
+static const char * const neighbor_kind_table[_NEIGHBOR_KIND_MAX] = {
+        [NEIGHBOR_KIND_STATIC]     = "static neighbor",
+};
+
+DEFINE_PRIVATE_STRING_TABLE_LOOKUP_TO_STRING(neighbor_kind, NeighborKind);
 
 static Neighbor* neighbor_detach_impl(Neighbor *neighbor) {
         assert(neighbor);
@@ -79,10 +86,11 @@ DEFINE_PRIVATE_HASH_OPS_WITH_VALUE_DESTRUCTOR(
         Neighbor,
         neighbor_detach);
 
-static int neighbor_new(Neighbor **ret) {
+static int neighbor_new(NeighborKind kind, Neighbor **ret) {
         Neighbor *neighbor;
 
         assert(ret);
+        assert(kind >= 0);
 
         neighbor = new(Neighbor, 1);
         if (!neighbor)
@@ -90,13 +98,14 @@ static int neighbor_new(Neighbor **ret) {
 
         *neighbor = (Neighbor) {
                 .n_ref = 1,
+                .kind = kind,
         };
 
         *ret = TAKE_PTR(neighbor);
         return 0;
 }
 
-static int neighbor_new_static(Network *network, const char *filename, unsigned section_line, Neighbor **ret) {
+static int neighbor_new_static(Network *network, const char *filename, unsigned section_line, NeighborKind kind, Neighbor **ret) {
         _cleanup_(config_section_freep) ConfigSection *n = NULL;
         _cleanup_(neighbor_unrefp) Neighbor *neighbor = NULL;
         int r;
@@ -112,11 +121,12 @@ static int neighbor_new_static(Network *network, const char *filename, unsigned 
 
         neighbor = ordered_hashmap_get(network->neighbors_by_section, n);
         if (neighbor) {
+                assert(neighbor->kind == kind);
                 *ret = TAKE_PTR(neighbor);
                 return 0;
         }
 
-        r = neighbor_new(&neighbor);
+        r = neighbor_new(kind, &neighbor);
         if (r < 0)
                 return r;
 
@@ -155,29 +165,48 @@ static int neighbor_dup(const Neighbor *neighbor, Neighbor **ret) {
 static void neighbor_hash_func(const Neighbor *neighbor, struct siphash *state) {
         assert(neighbor);
 
-        siphash24_compress_typesafe(neighbor->dst_addr.family, state);
+        siphash24_compress_typesafe(neighbor->kind, state);
 
-        if (!IN_SET(neighbor->dst_addr.family, AF_INET, AF_INET6))
-                /* treat any other address family as AF_UNSPEC */
-                return;
+        switch (neighbor->kind) {
+        case NEIGHBOR_KIND_STATIC:
+                siphash24_compress_typesafe(neighbor->dst_addr.family, state);
 
-        /* Equality of neighbors are given by the destination address.
-         * See neigh_lookup() in the kernel. */
-        in_addr_hash_func(&neighbor->dst_addr.address, neighbor->dst_addr.family, state);
+                if (!IN_SET(neighbor->dst_addr.family, AF_INET, AF_INET6))
+                        /* treat any other address family as AF_UNSPEC */
+                        return;
+
+                /* Equality of neighbors are given by the destination address.
+                 * See neigh_lookup() in the kernel. */
+                in_addr_hash_func(&neighbor->dst_addr.address, neighbor->dst_addr.family, state);
+                break;
+
+        default:
+                assert_not_reached();
+        }
 }
 
 static int neighbor_compare_func(const Neighbor *a, const Neighbor *b) {
         int r;
 
-        r = CMP(a->dst_addr.family, b->dst_addr.family);
+        r = CMP(a->kind, b->kind);
         if (r != 0)
                 return r;
 
-        if (!IN_SET(a->dst_addr.family, AF_INET, AF_INET6))
-                /* treat any other address family as AF_UNSPEC */
-                return 0;
+        switch (a->kind) {
+        case NEIGHBOR_KIND_STATIC:
+                r = CMP(a->dst_addr.family, b->dst_addr.family);
+                if (r != 0)
+                        return r;
 
-        return memcmp(&a->dst_addr.address, &b->dst_addr.address, FAMILY_ADDRESS_SIZE(a->dst_addr.family));
+                if (!IN_SET(a->dst_addr.family, AF_INET, AF_INET6))
+                        /* treat any other address family as AF_UNSPEC */
+                        return 0;
+
+                return memcmp(&a->dst_addr.address, &b->dst_addr.address, FAMILY_ADDRESS_SIZE(a->dst_addr.family));
+
+        default:
+                assert_not_reached();
+        }
 }
 
 static int neighbor_get_request(Link *link, const Neighbor *neighbor, Request **ret) {
@@ -248,11 +277,19 @@ static void log_neighbor_debug(const Neighbor *neighbor, const char *str, const 
 
         (void) network_config_state_to_string_alloc(neighbor->state, &state);
 
-        log_link_debug(link,
-                       "%s %s neighbor (%s): lladdr: %s, dst: %s",
-                       str, strna(network_config_source_to_string(neighbor->source)), strna(state),
-                       HW_ADDR_TO_STR(&neighbor->ll_addr),
-                       IN_ADDR_TO_STRING(neighbor->dst_addr.family, &neighbor->dst_addr.address));
+        switch (neighbor->kind) {
+        case NEIGHBOR_KIND_STATIC:
+                log_link_debug(link,
+                               "%s %s %s (%s): %s -> %s",
+                               str, strna(network_config_source_to_string(neighbor->source)),
+                               neighbor_kind_to_string(neighbor->kind), strna(state),
+                               IN_ADDR_TO_STRING(neighbor->dst_addr.family, &neighbor->dst_addr.address),
+                               HW_ADDR_TO_STR(&neighbor->ll_addr));
+                break;
+
+        default:
+                assert_not_reached();
+        }
 }
 
 static void neighbor_forget(Link *link, Neighbor *neighbor, const char *msg) {
@@ -272,6 +309,44 @@ static void neighbor_forget(Link *link, Neighbor *neighbor, const char *msg) {
         neighbor_detach(neighbor);
 }
 
+static int neighbor_get_ndm_family(const Neighbor *neighbor) {
+        assert(neighbor);
+
+        switch (neighbor->kind) {
+        case NEIGHBOR_KIND_STATIC:
+                assert(IN_SET(neighbor->dst_addr.family, AF_INET, AF_INET6));
+                return neighbor->dst_addr.family;
+
+        default:
+                assert_not_reached();
+        }
+}
+
+static uint16_t neighbor_get_ndm_state(const Neighbor *neighbor) {
+        assert(neighbor);
+
+        switch (neighbor->kind) {
+        case NEIGHBOR_KIND_STATIC:
+                return NUD_PERMANENT;
+
+        default:
+                assert_not_reached();
+        }
+}
+
+static uint8_t neighbor_get_ndm_flags(Link *link, const Neighbor *neighbor) {
+        assert(link);
+        assert(neighbor);
+
+        switch (neighbor->kind) {
+        case NEIGHBOR_KIND_STATIC:
+                return 0;
+
+        default:
+                assert_not_reached();
+        }
+}
+
 static int neighbor_configure(Neighbor *neighbor, Link *link, Request *req) {
         _cleanup_(sd_netlink_message_unrefp) sd_netlink_message *m = NULL;
         int r;
@@ -286,17 +361,23 @@ static int neighbor_configure(Neighbor *neighbor, Link *link, Request *req) {
         log_neighbor_debug(neighbor, "Configuring", link);
 
         r = sd_rtnl_message_new_neigh(link->manager->rtnl, &m, RTM_NEWNEIGH,
-                                      link->ifindex, neighbor->dst_addr.family);
+                                      link->ifindex, neighbor_get_ndm_family(neighbor));
         if (r < 0)
                 return r;
 
-        r = sd_rtnl_message_neigh_set_state(m, NUD_PERMANENT);
+        r = sd_rtnl_message_neigh_set_state(m, neighbor_get_ndm_state(neighbor));
         if (r < 0)
                 return r;
 
-        r = netlink_message_append_in_addr_union(m, NDA_DST, neighbor->dst_addr.family, &neighbor->dst_addr.address);
+        r = sd_rtnl_message_neigh_set_flags(m, neighbor_get_ndm_flags(link, neighbor));
         if (r < 0)
                 return r;
+
+        if (in_addr_is_set(neighbor->dst_addr.family, &neighbor->dst_addr.address)) {
+                r = netlink_message_append_in_addr_union(m, NDA_DST, neighbor->dst_addr.family, &neighbor->dst_addr.address);
+                if (r < 0)
+                        return r;
+        }
 
         if (neighbor->ll_addr.length > 0) {
                 r = netlink_message_append_hw_addr(m, NDA_LLADDR, &neighbor->ll_addr);
@@ -320,7 +401,7 @@ static int neighbor_process_request(Request *req, Link *link, Neighbor *neighbor
 
         r = neighbor_configure(neighbor, link, req);
         if (r < 0)
-                return log_link_warning_errno(link, r, "Failed to configure neighbor: %m");
+                return log_link_warning_errno(link, r, "Failed to configure %s: %m", neighbor_kind_to_string(neighbor->kind));
 
         neighbor_enter_configuring(neighbor);
         if (neighbor_get(link, neighbor, &existing) >= 0)
@@ -337,7 +418,7 @@ static int static_neighbor_configure_handler(sd_netlink *rtnl, sd_netlink_messag
 
         r = sd_netlink_message_get_errno(m);
         if (r < 0 && r != -EEXIST) {
-                log_link_message_warning_errno(link, m, r, "Could not set neighbor");
+                log_link_message_warning_errno(link, m, r, "Could not set %s", neighbor_kind_to_string(neighbor->kind));
                 link_enter_failed(link);
                 return 1;
         }
@@ -362,9 +443,10 @@ static int link_request_neighbor(Link *link, const Neighbor *neighbor) {
 
         if (neighbor->ll_addr.length != link->hw_addr.length) {
                 log_link_debug(link,
-                               "The link layer address length (%zu) for neighbor %s does not match with "
+                               "The link layer address length (%zu) for %s %s does not match with "
                                "the hardware address length (%zu), ignoring the setting.",
                                neighbor->ll_addr.length,
+                               neighbor_kind_to_string(neighbor->kind),
                                IN_ADDR_TO_STRING(neighbor->dst_addr.family, &neighbor->dst_addr.address),
                                link->hw_addr.length);
                 return 0;
@@ -415,7 +497,7 @@ int link_request_static_neighbors(Link *link) {
         ORDERED_HASHMAP_FOREACH(neighbor, link->network->neighbors_by_section) {
                 r = link_request_neighbor(link, neighbor);
                 if (r < 0)
-                        return log_link_warning_errno(link, r, "Could not request neighbor: %m");
+                        return log_link_warning_errno(link, r, "Could not request %s: %m", neighbor_kind_to_string(neighbor->kind));
         }
 
         if (link->static_neighbor_messages == 0) {
@@ -446,7 +528,8 @@ static int neighbor_remove_handler(sd_netlink *rtnl, sd_netlink_message *m, Remo
                 /* Neighbor may not exist because it already got deleted, ignore that. */
                 log_link_message_full_errno(link, m,
                                             (r == -ESRCH || !neighbor->link) ? LOG_DEBUG : LOG_WARNING,
-                                            r, "Could not remove neighbor");
+                                            r, "Could not remove %s",
+                                            neighbor_kind_to_string(neighbor->kind));
 
                 /* If the neighbor cannot be removed, then assume the neighbor is already removed. */
                 neighbor_forget(link, neighbor, "Forgetting");
@@ -470,13 +553,24 @@ int neighbor_remove(Neighbor *neighbor, Link *link) {
         log_neighbor_debug(neighbor, "Removing", link);
 
         r = sd_rtnl_message_new_neigh(link->manager->rtnl, &m, RTM_DELNEIGH,
-                                      link->ifindex, neighbor->dst_addr.family);
+                                      link->ifindex, neighbor_get_ndm_family(neighbor));
         if (r < 0)
                 return log_link_error_errno(link, r, "Could not allocate RTM_DELNEIGH message: %m");
 
-        r = netlink_message_append_in_addr_union(m, NDA_DST, neighbor->dst_addr.family, &neighbor->dst_addr.address);
+        r = sd_rtnl_message_neigh_set_flags(m, neighbor_get_ndm_flags(link, neighbor));
         if (r < 0)
-                return log_link_error_errno(link, r, "Could not append NDA_DST attribute: %m");
+                return log_link_error_errno(link, r, "Could not set neighbor flags: %m");
+
+        switch (neighbor->kind) {
+        case NEIGHBOR_KIND_STATIC:
+                r = netlink_message_append_in_addr_union(m, NDA_DST, neighbor->dst_addr.family, &neighbor->dst_addr.address);
+                if (r < 0)
+                        return log_link_error_errno(link, r, "Could not append NDA_DST attribute: %m");
+                break;
+
+        default:
+                assert_not_reached();
+        }
 
         r = link_remove_request_add(link, neighbor, neighbor, link->manager->rtnl, m, neighbor_remove_handler);
         if (r < 0)
@@ -545,6 +639,25 @@ int link_drop_static_neighbors(Link *link) {
         return r;
 }
 
+static int neighbor_kind_get(Link *link, sd_netlink_message *message, NeighborKind *ret) {
+        int r;
+
+        assert(link);
+        assert(message);
+        assert(ret);
+
+        int family;
+        r = sd_rtnl_message_neigh_get_family(message, &family);
+        if (r < 0)
+                return r;
+        if (IN_SET(family, AF_INET, AF_INET6)) {
+                *ret = NEIGHBOR_KIND_STATIC;
+                return 0;
+        }
+
+        return -EOPNOTSUPP;
+}
+
 int manager_rtnl_process_neighbor(sd_netlink *rtnl, sd_netlink_message *message, Manager *m) {
         int r;
 
@@ -596,28 +709,33 @@ int manager_rtnl_process_neighbor(sd_netlink *rtnl, sd_netlink_message *message,
                  * kernel sends messages about neighbors after a link is removed. So, just ignore it. */
                 return 0;
 
+        NeighborKind kind;
+        if (neighbor_kind_get(link, message, &kind) < 0)
+                return 0;
+
         _cleanup_(neighbor_unrefp) Neighbor *tmp = NULL;
-        r = neighbor_new(&tmp);
+        r = neighbor_new(kind, &tmp);
         if (r < 0)
                 return log_oom();
 
         /* First, retrieve the fundamental information about the neighbor. */
-        r = sd_rtnl_message_neigh_get_family(message, &tmp->dst_addr.family);
-        if (r < 0) {
-                log_link_warning(link, "rtnl: received neighbor message without family, ignoring.");
-                return 0;
-        }
-        if (tmp->dst_addr.family == AF_BRIDGE) /* Currently, we do not support it. */
-                return 0;
-        if (!IN_SET(tmp->dst_addr.family, AF_INET, AF_INET6)) {
-                log_link_debug(link, "rtnl: received neighbor message with invalid family '%i', ignoring.", tmp->dst_addr.family);
-                return 0;
-        }
+        switch (kind) {
+        case NEIGHBOR_KIND_STATIC:
+                r = sd_rtnl_message_neigh_get_family(message, &tmp->dst_addr.family);
+                if (r < 0) {
+                        log_link_warning(link, "rtnl: received neighbor message without family, ignoring.");
+                        return 0;
+                }
 
-        r = netlink_message_read_in_addr_union(message, NDA_DST, tmp->dst_addr.family, &tmp->dst_addr.address);
-        if (r < 0) {
-                log_link_warning_errno(link, r, "rtnl: received neighbor message without valid address, ignoring: %m");
-                return 0;
+                r = netlink_message_read_in_addr_union(message, NDA_DST, tmp->dst_addr.family, &tmp->dst_addr.address);
+                if (r < 0) {
+                        log_link_warning_errno(link, r, "rtnl: received neighbor message without valid address, ignoring: %m");
+                        return 0;
+                }
+                break;
+
+        default:
+                assert_not_reached();
         }
 
         /* Then, find the managed Neighbor object corresponding to the netlink notification. */
@@ -637,7 +755,7 @@ int manager_rtnl_process_neighbor(sd_netlink *rtnl, sd_netlink_message *message,
         if (!neighbor) {
                 r = neighbor_attach(link, tmp);
                 if (r < 0) {
-                        log_link_warning_errno(link, r, "Failed to save received neighbor, ignoring: %m");
+                        log_link_warning_errno(link, r, "Failed to save received %s, ignoring: %m", neighbor_kind_to_string(tmp->kind));
                         return 0;
                 }
                 neighbor = tmp;
@@ -654,9 +772,16 @@ int manager_rtnl_process_neighbor(sd_netlink *rtnl, sd_netlink_message *message,
         }
 
         /* Then, update miscellaneous info. */
-        r = netlink_message_read_hw_addr(message, NDA_LLADDR, &neighbor->ll_addr);
-        if (r < 0 && r != -ENODATA)
-                log_link_debug_errno(link, r, "rtnl: received neighbor message without valid link layer address, ignoring: %m");
+        switch (kind) {
+        case NEIGHBOR_KIND_STATIC:
+                r = netlink_message_read_hw_addr(message, NDA_LLADDR, &neighbor->ll_addr);
+                if (r < 0 && r != -ENODATA)
+                        log_link_debug_errno(link, r, "rtnl: received neighbor message without valid link layer address, ignoring: %m");
+                break;
+
+        default:
+                assert_not_reached();
+        }
 
         neighbor_enter_configured(neighbor);
         if (req)
@@ -677,14 +802,23 @@ int manager_rtnl_process_neighbor(sd_netlink *rtnl, sd_netlink_message *message,
         })
 
 static int neighbor_section_verify(Neighbor *neighbor) {
+        assert(neighbor);
+
         if (section_is_invalid(neighbor->section))
                 return -EINVAL;
 
-        if (neighbor->dst_addr.family == AF_UNSPEC)
-                return log_neighbor_section(neighbor, "Neighbor section without Address= configured.");
+        switch (neighbor->kind) {
+        case NEIGHBOR_KIND_STATIC:
+                if (neighbor->dst_addr.family == AF_UNSPEC)
+                        return log_neighbor_section(neighbor, "Neighbor section without Address= configured.");
 
-        if (neighbor->dst_addr.family == AF_INET6 && !socket_ipv6_is_supported())
-                return log_neighbor_section(neighbor, "Neighbor section with an IPv6 destination address configured, but the kernel does not support IPv6.");
+                if (neighbor->dst_addr.family == AF_INET6 && !socket_ipv6_is_supported())
+                        return log_neighbor_section(neighbor, "Neighbor section with an IPv6 destination address configured, but the kernel does not support IPv6.");
+                break;
+
+        default:
+                assert_not_reached();
+        }
 
         return 0;
 }
@@ -766,7 +900,7 @@ int config_parse_neighbor_section(
 
         assert(filename);
 
-        r = neighbor_new_static(network, filename, section_line, &neighbor);
+        r = neighbor_new_static(network, filename, section_line, NEIGHBOR_KIND_STATIC, &neighbor);
         if (r < 0)
                 return log_oom();
 

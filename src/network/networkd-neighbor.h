@@ -6,6 +6,12 @@
 #include "networkd-forward.h"
 #include "networkd-util.h"
 
+typedef enum NeighborKind {
+        NEIGHBOR_KIND_STATIC,
+        _NEIGHBOR_KIND_MAX,
+        _NEIGHBOR_KIND_INVALID = -EINVAL,
+} NeighborKind;
+
 typedef struct Neighbor {
         Network *network;
         Link *link;
@@ -15,8 +21,10 @@ typedef struct Neighbor {
 
         unsigned n_ref;
 
-        struct in_addr_data dst_addr;
-        struct hw_addr_data ll_addr;
+        NeighborKind kind;
+
+        struct in_addr_data dst_addr; /* NDA_DST */
+        struct hw_addr_data ll_addr;  /* NDA_LLADDR */
 } Neighbor;
 
 DECLARE_TRIVIAL_REF_UNREF_FUNC(Neighbor, neighbor);
