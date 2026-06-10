@@ -933,6 +933,13 @@ int network_drop_invalid_neighbors(Network *network) {
         struct in_addr_data *a;
         SET_FOREACH(a, network->proxy_neighbors) {
                 switch (a->family) {
+                case AF_INET:
+                        /* IPv4 proxy ARP entry does NOT require that proxy_arp sysctl is enabled.
+                         * When an IPv4 proxy ARP entry is specified, enable IPv4ProxyARP= if unspecified. */
+                        if (network->proxy_arp < 0)
+                                network->proxy_arp = true;
+                        break;
+
                 case AF_INET6:
                         if (!socket_ipv6_is_supported()) {
                                 log_warning("%s: Specified IPv6 proxy NDP address %s, but IPv6 is not supported by kernel, ignoring.",
@@ -1019,10 +1026,8 @@ int config_parse_proxy_neighbor(
                 return 0;
         }
 
-        struct in_addr_data a = {
-                .family = AF_INET6,
-        };
-        r = in_addr_from_string(a.family, rvalue, &a.address);
+        struct in_addr_data a;
+        r = in_addr_from_string_auto(rvalue, &a.family, &a.address);
         if (r < 0) {
                 log_syntax(unit, LOG_WARNING, filename, line, r,
                            "Failed to parse proxy ARP/NDP address, ignoring: %s", rvalue);

@@ -174,7 +174,8 @@ Network.PrimarySlave,                            config_parse_bool,             
 Network.IPv4ProxyARP,                            config_parse_tristate,                          0,                                      offsetof(Network, proxy_arp)
 Network.IPv4ProxyARPPrivateVLAN,                 config_parse_tristate,                          0,                                      offsetof(Network, proxy_arp_pvlan)
 Network.ProxyARP,                                config_parse_tristate,                          0,                                      offsetof(Network, proxy_arp)
-Network.IPv6ProxyNDPAddress,                     config_parse_proxy_neighbor,                    0,                                      0
+Network.IPv6ProxyNDPAddress,                     config_parse_proxy_neighbor,                    0,                                      0 /* deprecated */
+Network.ProxyNeighbor,                           config_parse_proxy_neighbor,                    0,                                      0
 Network.IPv4ReversePathFilter,                   config_parse_ip_reverse_path_filter,            0,                                      offsetof(Network, ipv4_rp_filter)
 Network.MulticastIGMPVersion,                    config_parse_ipv4_force_igmp_version,           0,                                      offsetof(Network, ipv4_force_igmp_version)
 Network.MPLSRouting,                             config_parse_tristate,                          0,                                      offsetof(Network, mpls_input)

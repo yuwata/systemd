@@ -5333,8 +5333,8 @@ class NetworkdNetworkTests(unittest.TestCase, Utilities):
         self.assertRegex(output, '2004:da8:1::/64 dev dummy98 label 4444')
         self.assertRegex(output, '2004:da8:2::/64 label 5555')
 
-    def test_ipv6_proxy_ndp(self):
-        copy_network_unit('25-ipv6-proxy-ndp.network', '12-dummy.netdev')
+    def test_proxy_neighbor(self):
+        copy_network_unit('25-proxy-neighbor.network', '12-dummy.netdev')
         start_networkd()
 
         self.wait_online('dummy98:routable')
@@ -5342,6 +5342,7 @@ class NetworkdNetworkTests(unittest.TestCase, Utilities):
         output = check_output('ip neighbor show proxy dev dummy98')
         print(output)
         for i in range(1, 5):
+            self.assertRegex(output, f'192.0.2.10{i} *proxy')
             self.assertRegex(output, f'2607:5300:203:5215:{i}::1 *proxy')
 
     def test_ipv6_neigh_retrans_time(self):
