@@ -8,6 +8,7 @@
 
 typedef enum NeighborKind {
         NEIGHBOR_KIND_STATIC,
+        NEIGHBOR_KIND_PROXY,
         _NEIGHBOR_KIND_MAX,
         _NEIGHBOR_KIND_INVALID = -EINVAL,
 } NeighborKind;
@@ -51,3 +52,4 @@ typedef enum NeighborConfParserType {
 } NeighborConfParserType;
 
 CONFIG_PARSER_PROTOTYPE(config_parse_neighbor_section);
+CONFIG_PARSER_PROTOTYPE(config_parse_proxy_neighbor);

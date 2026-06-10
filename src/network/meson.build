@@ -54,7 +54,6 @@ systemd_networkd_extract_sources = files(
         'networkd-dns.c',
         'networkd-ipv4acd.c',
         'networkd-ipv4ll.c',
-        'networkd-ipv6-proxy-ndp.c',
         'networkd-ipv6ll.c',
         'networkd-json.c',
         'networkd-link-bus.c',

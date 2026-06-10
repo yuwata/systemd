@@ -21,6 +21,7 @@
 
 static const char * const neighbor_kind_table[_NEIGHBOR_KIND_MAX] = {
         [NEIGHBOR_KIND_STATIC]     = "static neighbor",
+        [NEIGHBOR_KIND_PROXY]      = "proxy neighbor",
 };
 
 DEFINE_PRIVATE_STRING_TABLE_LOOKUP_TO_STRING(neighbor_kind, NeighborKind);
@@ -169,6 +170,7 @@ static void neighbor_hash_func(const Neighbor *neighbor, struct siphash *state) 
 
         switch (neighbor->kind) {
         case NEIGHBOR_KIND_STATIC:
+        case NEIGHBOR_KIND_PROXY:
                 siphash24_compress_typesafe(neighbor->dst_addr.family, state);
 
                 if (!IN_SET(neighbor->dst_addr.family, AF_INET, AF_INET6))
@@ -194,6 +196,7 @@ static int neighbor_compare_func(const Neighbor *a, const Neighbor *b) {
 
         switch (a->kind) {
         case NEIGHBOR_KIND_STATIC:
+        case NEIGHBOR_KIND_PROXY:
                 r = CMP(a->dst_addr.family, b->dst_addr.family);
                 if (r != 0)
                         return r;
@@ -287,6 +290,14 @@ static void log_neighbor_debug(const Neighbor *neighbor, const char *str, const 
                                HW_ADDR_TO_STR(&neighbor->ll_addr));
                 break;
 
+        case NEIGHBOR_KIND_PROXY:
+                log_link_debug(link,
+                               "%s %s %s (%s): %s",
+                               str, strna(network_config_source_to_string(neighbor->source)),
+                               neighbor_kind_to_string(neighbor->kind), strna(state),
+                               IN_ADDR_TO_STRING(neighbor->dst_addr.family, &neighbor->dst_addr.address));
+                break;
+
         default:
                 assert_not_reached();
         }
@@ -314,6 +325,7 @@ static int neighbor_get_ndm_family(const Neighbor *neighbor) {
 
         switch (neighbor->kind) {
         case NEIGHBOR_KIND_STATIC:
+        case NEIGHBOR_KIND_PROXY:
                 assert(IN_SET(neighbor->dst_addr.family, AF_INET, AF_INET6));
                 return neighbor->dst_addr.family;
 
@@ -327,6 +339,7 @@ static uint16_t neighbor_get_ndm_state(const Neighbor *neighbor) {
 
         switch (neighbor->kind) {
         case NEIGHBOR_KIND_STATIC:
+        case NEIGHBOR_KIND_PROXY:
                 return NUD_PERMANENT;
 
         default:
@@ -341,6 +354,9 @@ static uint8_t neighbor_get_ndm_flags(Link *link, const Neighbor *neighbor) {
         switch (neighbor->kind) {
         case NEIGHBOR_KIND_STATIC:
                 return 0;
+
+        case NEIGHBOR_KIND_PROXY:
+                return NTF_PROXY;
 
         default:
                 assert_not_reached();
@@ -441,7 +457,8 @@ static int link_request_neighbor(Link *link, const Neighbor *neighbor) {
         assert(neighbor);
         assert(neighbor->source != NETWORK_CONFIG_SOURCE_FOREIGN);
 
-        if (neighbor->ll_addr.length != link->hw_addr.length) {
+        if (neighbor->kind != NEIGHBOR_KIND_PROXY &&
+            neighbor->ll_addr.length != link->hw_addr.length) {
                 log_link_debug(link,
                                "The link layer address length (%zu) for %s %s does not match with "
                                "the hardware address length (%zu), ignoring the setting.",
@@ -498,6 +515,19 @@ int link_request_static_neighbors(Link *link) {
                 r = link_request_neighbor(link, neighbor);
                 if (r < 0)
                         return log_link_warning_errno(link, r, "Could not request %s: %m", neighbor_kind_to_string(neighbor->kind));
+        }
+
+        struct in_addr_data *a;
+        SET_FOREACH(a, link->network->proxy_neighbors) {
+                Neighbor n = {
+                        .source = NETWORK_CONFIG_SOURCE_STATIC,
+                        .kind = NEIGHBOR_KIND_PROXY,
+                        .dst_addr = *a,
+                };
+
+                r = link_request_neighbor(link, &n);
+                if (r < 0)
+                        return log_link_warning_errno(link, r, "Could not request %s: %m", neighbor_kind_to_string(n.kind));
         }
 
         if (link->static_neighbor_messages == 0) {
@@ -563,6 +593,7 @@ int neighbor_remove(Neighbor *neighbor, Link *link) {
 
         switch (neighbor->kind) {
         case NEIGHBOR_KIND_STATIC:
+        case NEIGHBOR_KIND_PROXY:
                 r = netlink_message_append_in_addr_union(m, NDA_DST, neighbor->dst_addr.family, &neighbor->dst_addr.address);
                 if (r < 0)
                         return log_link_error_errno(link, r, "Could not append NDA_DST attribute: %m");
@@ -604,6 +635,18 @@ int link_drop_unmanaged_neighbors(Link *link) {
                 Neighbor *existing;
 
                 if (neighbor_get(link, neighbor, &existing) >= 0)
+                        neighbor_unmark(existing);
+        }
+
+        struct in_addr_data *a;
+        SET_FOREACH(a, link->network->proxy_neighbors) {
+                Neighbor n = {
+                        .kind = NEIGHBOR_KIND_PROXY,
+                        .dst_addr = *a,
+                };
+
+                Neighbor *existing;
+                if (neighbor_get(link, &n, &existing) >= 0)
                         neighbor_unmark(existing);
         }
 
@@ -651,7 +694,16 @@ static int neighbor_kind_get(Link *link, sd_netlink_message *message, NeighborKi
         if (r < 0)
                 return r;
         if (IN_SET(family, AF_INET, AF_INET6)) {
-                *ret = NEIGHBOR_KIND_STATIC;
+                uint8_t flags;
+
+                r = sd_rtnl_message_neigh_get_flags(message, &flags);
+                if (r < 0)
+                        return r;
+
+                if (FLAGS_SET(flags, NTF_PROXY))
+                        *ret = NEIGHBOR_KIND_PROXY;
+                else
+                        *ret = NEIGHBOR_KIND_STATIC;
                 return 0;
         }
 
@@ -721,6 +773,7 @@ int manager_rtnl_process_neighbor(sd_netlink *rtnl, sd_netlink_message *message,
         /* First, retrieve the fundamental information about the neighbor. */
         switch (kind) {
         case NEIGHBOR_KIND_STATIC:
+        case NEIGHBOR_KIND_PROXY:
                 r = sd_rtnl_message_neigh_get_family(message, &tmp->dst_addr.family);
                 if (r < 0) {
                         log_link_warning(link, "rtnl: received neighbor message without family, ignoring.");
@@ -777,6 +830,9 @@ int manager_rtnl_process_neighbor(sd_netlink *rtnl, sd_netlink_message *message,
                 r = netlink_message_read_hw_addr(message, NDA_LLADDR, &neighbor->ll_addr);
                 if (r < 0 && r != -ENODATA)
                         log_link_debug_errno(link, r, "rtnl: received neighbor message without valid link layer address, ignoring: %m");
+                break;
+
+        case NEIGHBOR_KIND_PROXY:
                 break;
 
         default:
@@ -874,6 +930,33 @@ int network_drop_invalid_neighbors(Network *network) {
                 assert(r > 0);
         }
 
+        struct in_addr_data *a;
+        SET_FOREACH(a, network->proxy_neighbors) {
+                switch (a->family) {
+                case AF_INET6:
+                        if (!socket_ipv6_is_supported()) {
+                                log_warning("%s: Specified IPv6 proxy NDP address %s, but IPv6 is not supported by kernel, ignoring.",
+                                            network->filename, IN_ADDR_TO_STRING(a->family, &a->address));
+                                free(set_remove(network->proxy_neighbors, a));
+                                continue;
+                        }
+
+                        if (network->ipv6_proxy_ndp == 0) {
+                                log_warning("%s: Specified IPv6 proxy NDP address %s, but IPv6ProxyNDP= is disabled, ignoring.",
+                                            network->filename, IN_ADDR_TO_STRING(a->family, &a->address));
+                                free(set_remove(network->proxy_neighbors, a));
+                                continue;
+                        }
+
+                        /* IPv6 proxy NDP entry requires that proxy_ndp sysctl is enabled. */
+                        network->ipv6_proxy_ndp = true;
+                        break;
+
+                default:
+                        assert_not_reached();
+                }
+        }
+
         return 0;
 }
 
@@ -910,5 +993,55 @@ int config_parse_neighbor_section(
                 return r;
 
         TAKE_PTR(neighbor);
+        return 0;
+}
+
+int config_parse_proxy_neighbor(
+                const char *unit,
+                const char *filename,
+                unsigned line,
+                const char *section,
+                unsigned section_line,
+                const char *lvalue,
+                int ltype,
+                const char *rvalue,
+                void *data,
+                void *userdata) {
+
+        Network *network = ASSERT_PTR(userdata);
+        int r;
+
+        assert(filename);
+        assert(rvalue);
+
+        if (isempty(rvalue)) {
+                network->proxy_neighbors = set_free(network->proxy_neighbors);
+                return 0;
+        }
+
+        struct in_addr_data a = {
+                .family = AF_INET6,
+        };
+        r = in_addr_from_string(a.family, rvalue, &a.address);
+        if (r < 0) {
+                log_syntax(unit, LOG_WARNING, filename, line, r,
+                           "Failed to parse proxy ARP/NDP address, ignoring: %s", rvalue);
+                return 0;
+        }
+
+        if (in_addr_is_null(a.family, &a.address)) {
+                log_syntax(unit, LOG_WARNING, filename, line, 0,
+                           "Proxy ARP/NDP address cannot be the ANY address, ignoring: %s", rvalue);
+                return 0;
+        }
+
+        _cleanup_free_ struct in_addr_data *copy = newdup(struct in_addr_data, &a, 1);
+        if (!copy)
+                return log_oom();
+
+        r = set_ensure_consume(&network->proxy_neighbors, &in_addr_data_hash_ops_free, TAKE_PTR(copy));
+        if (r < 0)
+                return log_oom();
+
         return 0;
 }

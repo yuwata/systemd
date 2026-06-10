@@ -355,7 +355,6 @@ typedef struct Network {
         IPReversePathFilter ipv4_rp_filter;
         IPv4ForceIgmpVersion ipv4_force_igmp_version;
         int ipv6_proxy_ndp;
-        Set *ipv6_proxy_ndp_addresses;
         int mpls_input;
 
         /* NDisc support */
@@ -405,6 +404,7 @@ typedef struct Network {
         Hashmap *bridge_fdb_entries_by_section;
         Hashmap *bridge_mdb_entries_by_section;
         OrderedHashmap *neighbors_by_section;
+        Set *proxy_neighbors;
         Hashmap *address_labels_by_section;
         Hashmap *prefixes_by_section;
         Hashmap *route_prefixes_by_section;

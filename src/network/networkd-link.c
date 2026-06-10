@@ -48,7 +48,6 @@
 #include "networkd-dhcp6.h"
 #include "networkd-ipv4acd.h"
 #include "networkd-ipv4ll.h"
-#include "networkd-ipv6-proxy-ndp.h"
 #include "networkd-link.h"
 #include "networkd-link-bus.h"
 #include "networkd-lldp-tx.h"
@@ -524,9 +523,6 @@ void link_check_ready(Link *link) {
         if (!link->static_bridge_mdb_configured)
                 return (void) log_link_debug(link, "%s(): static bridge MDB entries are not configured.", __func__);
 
-        if (!link->static_ipv6_proxy_ndp_configured)
-                return (void) log_link_debug(link, "%s(): static IPv6 proxy NDP addresses are not configured.", __func__);
-
         if (!link->static_neighbors_configured)
                 return (void) log_link_debug(link, "%s(): static neighbors are not configured.", __func__);
 
@@ -647,10 +643,6 @@ static int link_request_static_configs(Link *link) {
                 return r;
 
         r = link_request_static_bridge_mdb(link);
-        if (r < 0)
-                return r;
-
-        r = link_request_static_ipv6_proxy_ndp_addresses(link);
         if (r < 0)
                 return r;
 

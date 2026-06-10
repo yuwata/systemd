@@ -502,20 +502,16 @@ static int link_set_ipv6_retransmission_time(Link *link) {
 }
 
 static int link_set_ipv6_proxy_ndp(Link *link) {
-        bool v;
-
         assert(link);
         assert(link->manager);
 
         if (!link_is_configured_for_family(link, AF_INET6))
                 return 0;
 
-        if (link->network->ipv6_proxy_ndp >= 0)
-                v = link->network->ipv6_proxy_ndp;
-        else
-                v = !set_isempty(link->network->ipv6_proxy_ndp_addresses);
+        if (link->network->ipv6_proxy_ndp < 0)
+                return 0;
 
-        return sysctl_write_ip_property_boolean(AF_INET6, link->ifname, "proxy_ndp", v, manager_get_sysctl_shadow(link->manager));
+        return sysctl_write_ip_property_boolean(AF_INET6, link->ifname, "proxy_ndp", link->network->ipv6_proxy_ndp, manager_get_sysctl_shadow(link->manager));
 }
 
 int link_set_ipv6_mtu(Link *link, int log_level) {
