@@ -294,13 +294,15 @@ static int neighbor_configure(Neighbor *neighbor, Link *link, Request *req) {
         if (r < 0)
                 return r;
 
-        r = netlink_message_append_hw_addr(m, NDA_LLADDR, &neighbor->ll_addr);
-        if (r < 0)
-                return r;
-
         r = netlink_message_append_in_addr_union(m, NDA_DST, neighbor->dst_addr.family, &neighbor->dst_addr.address);
         if (r < 0)
                 return r;
+
+        if (neighbor->ll_addr.length > 0) {
+                r = netlink_message_append_hw_addr(m, NDA_LLADDR, &neighbor->ll_addr);
+                if (r < 0)
+                        return r;
+        }
 
         return request_call_netlink_async(link->manager->rtnl, m, req);
 }
@@ -683,9 +685,6 @@ static int neighbor_section_verify(Neighbor *neighbor) {
 
         if (neighbor->dst_addr.family == AF_INET6 && !socket_ipv6_is_supported())
                 return log_neighbor_section(neighbor, "Neighbor section with an IPv6 destination address configured, but the kernel does not support IPv6.");
-
-        if (neighbor->ll_addr.length == 0)
-                return log_neighbor_section(neighbor, "Neighbor section without LinkLayerAddress= configured.");
 
         return 0;
 }
