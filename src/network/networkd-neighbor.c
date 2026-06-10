@@ -13,15 +13,19 @@
 #include "networkd-network.h"
 #include "networkd-queue.h"
 #include "ordered-set.h"
+#include "parse-util.h"
 #include "set.h"
 #include "siphash24.h"
 #include "socket-util.h"
 #include "string-table.h"
 #include "string-util.h"
+#include "vxlan.h"
 
 static const char * const neighbor_kind_table[_NEIGHBOR_KIND_MAX] = {
         [NEIGHBOR_KIND_STATIC]     = "static neighbor",
         [NEIGHBOR_KIND_PROXY]      = "proxy neighbor",
+        [NEIGHBOR_KIND_BRIDGE_FDB] = "bridge fdb",
+        [NEIGHBOR_KIND_VXLAN_FDB]  = "vxlan fdb",
 };
 
 DEFINE_PRIVATE_STRING_TABLE_LOOKUP_TO_STRING(neighbor_kind, NeighborKind);
@@ -57,6 +61,9 @@ static Neighbor* neighbor_free(Neighbor *neighbor) {
         neighbor_detach_impl(neighbor);
 
         config_section_free(neighbor->section);
+
+        free(neighbor->ifname);
+
         return mfree(neighbor);
 }
 
@@ -145,6 +152,7 @@ static int neighbor_new_static(Network *network, const char *filename, unsigned 
 
 static int neighbor_dup(const Neighbor *neighbor, Neighbor **ret) {
         _cleanup_(neighbor_unrefp) Neighbor *dest = NULL;
+        int r;
 
         assert(neighbor);
         assert(ret);
@@ -158,6 +166,11 @@ static int neighbor_dup(const Neighbor *neighbor, Neighbor **ret) {
         dest->link = NULL;
         dest->network = NULL;
         dest->section = NULL;
+        dest->ifname = NULL;
+
+        r = strdup_to(&dest->ifname, neighbor->ifname);
+        if (r < 0)
+                return r;
 
         *ret = TAKE_PTR(dest);
         return 0;
@@ -180,6 +193,30 @@ static void neighbor_hash_func(const Neighbor *neighbor, struct siphash *state) 
                 /* Equality of neighbors are given by the destination address.
                  * See neigh_lookup() in the kernel. */
                 in_addr_hash_func(&neighbor->dst_addr.address, neighbor->dst_addr.family, state);
+                break;
+
+        case NEIGHBOR_KIND_BRIDGE_FDB:
+                assert(neighbor->ll_addr.length == ETH_ALEN);
+                siphash24_compress_typesafe(neighbor->ll_addr.ether, state);
+                siphash24_compress_typesafe(neighbor->vlan_id, state);
+                break;
+
+        case NEIGHBOR_KIND_VXLAN_FDB:
+                assert(neighbor->ll_addr.length == ETH_ALEN);
+                siphash24_compress_typesafe(neighbor->ll_addr.ether, state);
+                siphash24_compress_typesafe(neighbor->src_vni, state);
+
+                if (ether_addr_is_multicast(&neighbor->ll_addr.ether) ||
+                    ether_addr_is_null(&neighbor->ll_addr.ether)) {
+                        /* For multicast or NULL MAC address, multiple remote destinations. */
+                        siphash24_compress_typesafe(neighbor->dst_addr.family, state);
+                        in_addr_hash_func(&neighbor->dst_addr.address, neighbor->dst_addr.family, state);
+                        siphash24_compress_typesafe(neighbor->port, state);
+                        siphash24_compress_typesafe(neighbor->vni, state);
+                        siphash24_compress_typesafe(neighbor->ifindex, state);
+                        if (neighbor->ifindex == 0)
+                                siphash24_compress_string(neighbor->ifname, state); /* For Network or Request object. */
+                }
                 break;
 
         default:
@@ -206,6 +243,57 @@ static int neighbor_compare_func(const Neighbor *a, const Neighbor *b) {
                         return 0;
 
                 return memcmp(&a->dst_addr.address, &b->dst_addr.address, FAMILY_ADDRESS_SIZE(a->dst_addr.family));
+
+        case NEIGHBOR_KIND_BRIDGE_FDB:
+                assert(a->ll_addr.length == ETH_ALEN);
+                assert(b->ll_addr.length == ETH_ALEN);
+                r = memcmp(&a->ll_addr.ether, &b->ll_addr.ether, ETH_ALEN);
+                if (r != 0)
+                        return r;
+
+                return CMP(a->vlan_id, b->vlan_id);
+
+        case NEIGHBOR_KIND_VXLAN_FDB:
+                assert(a->ll_addr.length == ETH_ALEN);
+                assert(b->ll_addr.length == ETH_ALEN);
+                r = memcmp(&a->ll_addr.ether, &b->ll_addr.ether, ETH_ALEN);
+                if (r != 0)
+                        return r;
+
+                r = CMP(a->src_vni, b->src_vni);
+                if (r != 0)
+                        return r;
+
+                if (ether_addr_is_multicast(&a->ll_addr.ether) ||
+                    ether_addr_is_null(&a->ll_addr.ether)) {
+                        r = CMP(a->dst_addr.family, b->dst_addr.family);
+                        if (r != 0)
+                                return r;
+
+                        r = memcmp(&a->dst_addr.address, &b->dst_addr.address, FAMILY_ADDRESS_SIZE(a->dst_addr.family));
+                        if (r != 0)
+                                return r;
+
+                        r = CMP(a->port, b->port);
+                        if (r != 0)
+                                return r;
+
+                        r = CMP(a->vni, b->vni);
+                        if (r != 0)
+                                return r;
+
+                        r = CMP(a->ifindex, b->ifindex);
+                        if (r != 0)
+                                return r;
+
+                        if (a->ifindex == 0) {
+                                r = strcmp_ptr(a->ifname, b->ifname);
+                                if (r != 0)
+                                        return r;
+                        }
+                }
+
+                return 0;
 
         default:
                 assert_not_reached();
@@ -269,11 +357,25 @@ static int neighbor_attach(Link *link, Neighbor *neighbor) {
         return 0;
 }
 
+static int neighbor_get_link(Manager *manager, const Neighbor *neighbor, Link **ret) {
+        assert(neighbor);
+
+        if (neighbor->ifindex > 0)
+                return link_get_by_index(manager, neighbor->ifindex, ret);
+        if (neighbor->ifname)
+                return link_get_by_name(manager, neighbor->ifname, ret);
+
+        if (ret)
+                *ret = NULL;
+        return 0;
+}
+
 static void log_neighbor_debug(const Neighbor *neighbor, const char *str, const Link *link) {
         _cleanup_free_ char *state = NULL;
 
         assert(neighbor);
         assert(str);
+        assert(link);
 
         if (!DEBUG_LOGGING)
                 return;
@@ -297,6 +399,28 @@ static void log_neighbor_debug(const Neighbor *neighbor, const char *str, const 
                                neighbor_kind_to_string(neighbor->kind), strna(state),
                                IN_ADDR_TO_STRING(neighbor->dst_addr.family, &neighbor->dst_addr.address));
                 break;
+
+        case NEIGHBOR_KIND_BRIDGE_FDB:
+                log_link_debug(link,
+                               "%s %s %s (%s): %s, vlan: %"PRIu32,
+                               str, strna(network_config_source_to_string(neighbor->source)),
+                               neighbor_kind_to_string(neighbor->kind), strna(state),
+                               HW_ADDR_TO_STR(&neighbor->ll_addr), neighbor->vlan_id);
+                break;
+
+        case NEIGHBOR_KIND_VXLAN_FDB: {
+                Link *out = NULL;
+                (void) neighbor_get_link(link->manager, neighbor, &out);
+
+                log_link_debug(link,
+                               "%s %s %s (%s): (%s, src_vni: %"PRIu32") -> (%s, port: %u, vni: %"PRIu32", interface: %s)",
+                               str, strna(network_config_source_to_string(neighbor->source)),
+                               neighbor_kind_to_string(neighbor->kind), strna(state),
+                               HW_ADDR_TO_STR(&neighbor->ll_addr), neighbor->src_vni,
+                               IN_ADDR_TO_STRING(neighbor->dst_addr.family, &neighbor->dst_addr.address),
+                               neighbor->port, neighbor->vni, strna(out ? out->ifname : NULL));
+                break;
+        }
 
         default:
                 assert_not_reached();
@@ -329,6 +453,10 @@ static int neighbor_get_ndm_family(const Neighbor *neighbor) {
                 assert(IN_SET(neighbor->dst_addr.family, AF_INET, AF_INET6));
                 return neighbor->dst_addr.family;
 
+        case NEIGHBOR_KIND_BRIDGE_FDB:
+        case NEIGHBOR_KIND_VXLAN_FDB:
+                return AF_BRIDGE;
+
         default:
                 assert_not_reached();
         }
@@ -341,6 +469,10 @@ static uint16_t neighbor_get_ndm_state(const Neighbor *neighbor) {
         case NEIGHBOR_KIND_STATIC:
         case NEIGHBOR_KIND_PROXY:
                 return NUD_PERMANENT;
+
+        case NEIGHBOR_KIND_BRIDGE_FDB:
+        case NEIGHBOR_KIND_VXLAN_FDB:
+                return NUD_PERMANENT | NUD_NOARP;
 
         default:
                 assert_not_reached();
@@ -357,6 +489,12 @@ static uint8_t neighbor_get_ndm_flags(Link *link, const Neighbor *neighbor) {
 
         case NEIGHBOR_KIND_PROXY:
                 return NTF_PROXY;
+
+        case NEIGHBOR_KIND_BRIDGE_FDB:
+                return (streq_ptr(link->kind, "bridge") ? NTF_SELF : NTF_MASTER) | (neighbor->flags & NTF_USE);
+
+        case NEIGHBOR_KIND_VXLAN_FDB:
+                return NTF_SELF | (neighbor->flags & (NTF_USE | NTF_ROUTER));
 
         default:
                 assert_not_reached();
@@ -401,7 +539,104 @@ static int neighbor_configure(Neighbor *neighbor, Link *link, Request *req) {
                         return r;
         }
 
+        if (neighbor->vlan_id > 0) {
+                r = sd_netlink_message_append_u32(m, NDA_VLAN, neighbor->vlan_id);
+                if (r < 0)
+                        return r;
+        }
+
+        if (neighbor->vni > 0) {
+                r = sd_netlink_message_append_u32(m, NDA_VNI, neighbor->vni);
+                if (r < 0)
+                        return r;
+        }
+
+        if (neighbor->ifindex > 0) {
+                r = sd_netlink_message_append_u32(m, NDA_IFINDEX, neighbor->ifindex);
+                if (r < 0)
+                        return r;
+        }
+
         return request_call_netlink_async(link->manager->rtnl, m, req);
+}
+
+static bool neighbor_needs_adjust(const Neighbor *neighbor) {
+        assert(neighbor);
+
+        return neighbor->ifindex == 0 && !isempty(neighbor->ifname);
+}
+
+static int neighbor_adjust(Neighbor *neighbor, Manager *manager) {
+        int r;
+
+        assert(neighbor);
+        assert(manager);
+
+        Link *link;
+        r = neighbor_get_link(manager, neighbor, &link);
+        if (r < 0)
+                return r;
+
+        neighbor->ifindex = link->ifindex;
+        neighbor->ifname = mfree(neighbor->ifname);
+        return 0;
+}
+
+static int neighbor_is_ready_to_configure(const Neighbor *neighbor, Link *link) {
+        assert(neighbor);
+        assert(link);
+
+        if (!link_is_ready_to_configure(link, /* allow_unmanaged= */ false))
+                return false;
+
+        Link *out;
+        if (neighbor_get_link(link->manager, neighbor, &out) < 0)
+                return false;
+        if (out && !link_is_ready_to_configure(out, /* allow_unmanaged= */ true))
+                return false;
+
+        return true;
+}
+
+static int neighbor_requeue_request(Request *req, Link *link, Neighbor *neighbor) {
+        int r;
+
+        assert(req);
+        assert(link);
+        assert(link->manager);
+        assert(neighbor);
+
+        /* It is not possible to adjust the Neighbor object owned by Request, as it is used as a key to
+         * manage Request objects in the queue. Hence, we need to re-request with the updated object. */
+
+        if (!neighbor_needs_adjust(neighbor))
+                return 0; /* The Neighbor object does not need the adjustment. Continue with it. */
+
+        _cleanup_(neighbor_unrefp) Neighbor *tmp = NULL;
+        r = neighbor_dup(neighbor, &tmp);
+        if (r < 0)
+                return r;
+
+        r = neighbor_adjust(tmp, link->manager);
+        if (r < 0)
+                return r;
+
+        /* Avoid the request to be freed by request_detach(). */
+        _unused_ _cleanup_(request_unrefp) Request *req_unref = request_ref(req);
+
+        /* First, detach the request from the queue, to make not the new request is deduped. */
+        request_detach(req);
+
+        /* Then, request with the adjusted Neighbor object. */
+        r = link_requeue_request(link, req, tmp, /* ret= */ NULL);
+        if (r < 0)
+                return r;
+        if (r == 0)
+                /* Already queued?? That's OK. Maybe, [VXLANFDB] section is effectively duplicated. */
+                return 1;
+
+        TAKE_PTR(tmp);
+        return 1; /* New request is queued. Finish to process the old request. */
 }
 
 static int neighbor_process_request(Request *req, Link *link, Neighbor *neighbor) {
@@ -412,8 +647,12 @@ static int neighbor_process_request(Request *req, Link *link, Neighbor *neighbor
         assert(link);
         assert(neighbor);
 
-        if (!link_is_ready_to_configure(link, false))
+        if (!neighbor_is_ready_to_configure(neighbor, link))
                 return 0;
+
+        r = neighbor_requeue_request(req, link, neighbor);
+        if (r != 0)
+                return r;
 
         r = neighbor_configure(neighbor, link, req);
         if (r < 0)
@@ -599,6 +838,55 @@ int neighbor_remove(Neighbor *neighbor, Link *link) {
                         return log_link_error_errno(link, r, "Could not append NDA_DST attribute: %m");
                 break;
 
+        case NEIGHBOR_KIND_BRIDGE_FDB:
+                r = netlink_message_append_hw_addr(m, NDA_LLADDR, &neighbor->ll_addr);
+                if (r < 0)
+                        return log_link_error_errno(link, r, "Could not append NDA_LLADDR attribute: %m");
+
+                if (neighbor->vlan_id > 0) {
+                        r = sd_netlink_message_append_u32(m, NDA_VLAN, neighbor->vlan_id);
+                        if (r < 0)
+                                return log_link_error_errno(link, r, "Could not append NDA_VLAN attribute: %m");
+                }
+                break;
+
+        case NEIGHBOR_KIND_VXLAN_FDB:
+                r = netlink_message_append_hw_addr(m, NDA_LLADDR, &neighbor->ll_addr);
+                if (r < 0)
+                        return log_link_error_errno(link, r, "Could not append NDA_LLADDR attribute: %m");
+
+                if (neighbor->src_vni > 0) {
+                        r = sd_netlink_message_append_u32(m, NDA_SRC_VNI, neighbor->src_vni);
+                        if (r < 0)
+                                return log_link_error_errno(link, r, "Could not append NDA_SRC_VNI attribute: %m");
+                }
+
+                if (ether_addr_is_multicast(&neighbor->ll_addr.ether) ||
+                    ether_addr_is_null(&neighbor->ll_addr.ether)) {
+                        r = netlink_message_append_in_addr_union(m, NDA_DST, neighbor->dst_addr.family, &neighbor->dst_addr.address);
+                        if (r < 0)
+                                return log_link_error_errno(link, r, "Could not append NDA_DST attribute: %m");
+
+                        if (neighbor->port > 0) {
+                                r = sd_netlink_message_append_u16(m, NDA_PORT, neighbor->port);
+                                if (r < 0)
+                                        return log_link_error_errno(link, r, "Could not append NDA_PORT attribute: %m");
+                        }
+
+                        if (neighbor->vni > 0) {
+                                r = sd_netlink_message_append_u32(m, NDA_VNI, neighbor->vni);
+                                if (r < 0)
+                                        return log_link_error_errno(link, r, "Could not append NDA_VNI attribute: %m");
+                        }
+
+                        if (neighbor->ifindex > 0) {
+                                r = sd_netlink_message_append_u32(m, NDA_IFINDEX, neighbor->ifindex);
+                                if (r < 0)
+                                        return log_link_error_errno(link, r, "Could not append NDA_IFINDEX attribute: %m");
+                        }
+                }
+                break;
+
         default:
                 assert_not_reached();
         }
@@ -632,9 +920,22 @@ int link_drop_unmanaged_neighbors(Link *link) {
 
         /* Next, unmark requested neighbors. They will be configured later. */
         ORDERED_HASHMAP_FOREACH(neighbor, link->network->neighbors_by_section) {
-                Neighbor *existing;
+                _cleanup_(neighbor_unrefp) Neighbor *tmp = NULL;
+                if (neighbor_needs_adjust(neighbor)) {
+                        if (neighbor_get_link(link->manager, neighbor, /* ret= */ NULL) < 0)
+                                continue;
 
-                if (neighbor_get(link, neighbor, &existing) >= 0)
+                        r = neighbor_dup(neighbor, &tmp);
+                        if (r < 0)
+                                return r;
+
+                        r = neighbor_adjust(tmp, link->manager);
+                        if (r < 0)
+                                return r;
+                }
+
+                Neighbor *existing;
+                if (neighbor_get(link, tmp ?: neighbor, &existing) >= 0)
                         neighbor_unmark(existing);
         }
 
@@ -705,6 +1006,21 @@ static int neighbor_kind_get(Link *link, sd_netlink_message *message, NeighborKi
                 else
                         *ret = NEIGHBOR_KIND_STATIC;
                 return 0;
+        }
+
+        if (family == AF_BRIDGE) {
+                r = sd_netlink_message_read_u32(message, NDA_MASTER, /* ret= */ NULL);
+                if (r >= 0) {
+                        *ret = NEIGHBOR_KIND_BRIDGE_FDB;
+                        return 0;
+                }
+                if (r != -ENODATA)
+                        return r;
+
+                if (streq_ptr(link->kind, "vxlan")) {
+                        *ret = NEIGHBOR_KIND_VXLAN_FDB;
+                        return 0;
+                }
         }
 
         return -EOPNOTSUPP;
@@ -787,6 +1103,63 @@ int manager_rtnl_process_neighbor(sd_netlink *rtnl, sd_netlink_message *message,
                 }
                 break;
 
+        case NEIGHBOR_KIND_BRIDGE_FDB:
+                r = sd_netlink_message_read_ether_addr(message, NDA_LLADDR, &tmp->ll_addr.ether);
+                if (r < 0) {
+                        log_link_warning_errno(link, r, "rtnl: received neighbor message without valid link layer address, ignoring: %m");
+                        return 0;
+                }
+                tmp->ll_addr.length = ETH_ALEN;
+
+                r = sd_netlink_message_read_u16(message, NDA_VLAN, &tmp->vlan_id);
+                if (r < 0 && r != -ENODATA) {
+                        log_link_warning_errno(link, r, "rtnl: received neighbor message without valid vlan ID, ignoring: %m");
+                        return 0;
+                }
+                break;
+
+        case NEIGHBOR_KIND_VXLAN_FDB: {
+                r = sd_netlink_message_read_ether_addr(message, NDA_LLADDR, &tmp->ll_addr.ether);
+                if (r < 0) {
+                        log_link_warning_errno(link, r, "rtnl: received neighbor message without valid link layer address, ignoring: %m");
+                        return 0;
+                }
+                tmp->ll_addr.length = ETH_ALEN;
+
+                /* No NDA_SRC_VNI means the interface uses the default VNI. */
+                r = sd_netlink_message_read_u32(message, NDA_SRC_VNI, &tmp->src_vni);
+                if (r < 0 && r != -ENODATA) {
+                        log_link_warning_errno(link, r, "rtnl: received neighbor message without valid source VNI, ignoring: %m");
+                        return 0;
+                }
+
+                r = netlink_message_read_in_addr_union_auto(message, NDA_DST, &tmp->dst_addr.family, &tmp->dst_addr.address);
+                if (r < 0 && r != -ENODATA) {
+                        log_link_warning_errno(link, r, "rtnl: received neighbor message without valid address, ignoring: %m");
+                        return 0;
+                }
+
+                r = sd_netlink_message_read_u16(message, NDA_PORT, &tmp->port);
+                if (r < 0 && r != -ENODATA) {
+                        log_link_warning_errno(link, r, "rtnl: received neighbor message without valid port, ignoring: %m");
+                        return 0;
+                }
+
+                r = sd_netlink_message_read_u32(message, NDA_VNI, &tmp->vni);
+                if (r < 0 && r != -ENODATA) {
+                        log_link_warning_errno(link, r, "rtnl: received neighbor message without valid VNI, ignoring: %m");
+                        return 0;
+                }
+
+                uint32_t u;
+                r = sd_netlink_message_read_u32(message, NDA_IFINDEX, &u);
+                if (r < 0 && r != -ENODATA) {
+                        log_link_warning_errno(link, r, "rtnl: received neighbor message without valid ifindex, ignoring: %m");
+                        return 0;
+                }
+                tmp->ifindex = u;
+                break;
+        }
         default:
                 assert_not_reached();
         }
@@ -833,6 +1206,8 @@ int manager_rtnl_process_neighbor(sd_netlink *rtnl, sd_netlink_message *message,
                 break;
 
         case NEIGHBOR_KIND_PROXY:
+        case NEIGHBOR_KIND_BRIDGE_FDB:
+        case NEIGHBOR_KIND_VXLAN_FDB:
                 break;
 
         default:
@@ -857,6 +1232,16 @@ int manager_rtnl_process_neighbor(sd_netlink *rtnl, sd_netlink_message *message,
                                 ##__VA_ARGS__);                         \
         })
 
+#define log_bridge_fdb_section(neighbor, fmt, ...)                      \
+        ({                                                              \
+                const Neighbor *_neighbor = (neighbor);                 \
+                log_section_warning_errno(                              \
+                                _neighbor ? _neighbor->section : NULL,  \
+                                SYNTHETIC_ERRNO(EINVAL),                \
+                                fmt " Ignoring [BridgeFDB] section.",   \
+                                ##__VA_ARGS__);                         \
+        })
+
 static int neighbor_section_verify(Neighbor *neighbor) {
         assert(neighbor);
 
@@ -870,6 +1255,41 @@ static int neighbor_section_verify(Neighbor *neighbor) {
 
                 if (neighbor->dst_addr.family == AF_INET6 && !socket_ipv6_is_supported())
                         return log_neighbor_section(neighbor, "Neighbor section with an IPv6 destination address configured, but the kernel does not support IPv6.");
+                break;
+
+        case NEIGHBOR_KIND_BRIDGE_FDB:
+                /* We allow to configure both bridge FDB and vxlan FDB by [bridgeFDB] section.
+                 * vlan_id is for bridge FDB, but dst_addr, vni, and ifindex/ifname are for vxlan FDB. */
+                if (in_addr_is_set(neighbor->dst_addr.family, &neighbor->dst_addr.address) ||
+                    neighbor->vni > 0 ||
+                    neighbor->ifname ||
+                    neighbor->ifindex > 0) {
+
+                        if (neighbor->vlan_id > 0)
+                                return log_bridge_fdb_section(neighbor, "BridgeFDB section contains settings for vxlan FDB.");
+
+                        /* Assume this is a vxlan FDB entry. */
+                        neighbor->kind = NEIGHBOR_KIND_VXLAN_FDB;
+                        goto vxlan_fdb;
+                }
+
+                if (neighbor->ll_addr.length != ETH_ALEN)
+                        return log_bridge_fdb_section(neighbor, "BridgeFDB section without MACAddress= configured.");
+                break;
+
+        case NEIGHBOR_KIND_VXLAN_FDB:
+        vxlan_fdb:
+                /* When MAC address is unspecified, assume NULL MAC address. */
+                if (neighbor->ll_addr.length == 0)
+                        neighbor->ll_addr = (struct hw_addr_data) {
+                                .length = ETH_ALEN,
+                        };
+
+                if (!in_addr_is_set(neighbor->dst_addr.family, &neighbor->dst_addr.address))
+                        return log_bridge_fdb_section(neighbor, "BridgeFDB section without Destination= configured.");
+
+                if (neighbor->vni > VXLAN_VID_MAX)
+                        return log_bridge_fdb_section(neighbor, "BridgeFDB section has VNI > %"PRIu32".", neighbor->vni);
                 break;
 
         default:
@@ -1048,5 +1468,135 @@ int config_parse_proxy_neighbor(
         if (r < 0)
                 return log_oom();
 
+        return 0;
+}
+
+static int config_parse_fdb_flags(
+                const char *unit,
+                const char *filename,
+                unsigned line,
+                const char *section,
+                unsigned section_line,
+                const char *lvalue,
+                int ltype,
+                const char *rvalue,
+                void *data,
+                void *userdata) {
+
+        uint8_t *flags = ASSERT_PTR(data);
+
+        assert(lvalue);
+        assert(rvalue);
+
+        if (isempty(rvalue)) {
+                *flags = 0;
+                return 1;
+        }
+
+        if (streq(rvalue, "use")) {
+                *flags |= NTF_USE;
+                return 1;
+        }
+
+        if (streq(rvalue, "router")) {
+                *flags |= NTF_ROUTER;
+                return 1;
+        }
+
+        if (streq(rvalue, "self")) {
+                *flags |= NTF_SELF;
+                return 1;
+        }
+
+        if (streq(rvalue, "master")) {
+                *flags |= NTF_MASTER;
+                return 1;
+        }
+
+        return log_syntax_parse_error(unit, filename, line, 0, lvalue, rvalue);
+}
+
+static int config_parse_fdb_interface(
+                const char *unit,
+                const char *filename,
+                unsigned line,
+                const char *section,
+                unsigned section_line,
+                const char *lvalue,
+                int ltype,
+                const char *rvalue,
+                void *data,
+                void *userdata) {
+
+        Neighbor *neighbor = ASSERT_PTR(userdata);
+        int r;
+
+        assert(lvalue);
+        assert(rvalue);
+
+        if (isempty(rvalue)) {
+                neighbor->ifname = mfree(neighbor->ifname);
+                neighbor->ifindex = 0;
+                return 1;
+        }
+
+        r = parse_ifindex(rvalue);
+        if (r > 0) {
+                neighbor->ifname = mfree(neighbor->ifname);
+                neighbor->ifindex = r;
+                return 1;
+        }
+
+        if (!ifname_valid_full(rvalue, IFNAME_VALID_ALTERNATIVE)) {
+                log_syntax(unit, LOG_WARNING, filename, line, 0,
+                           "Invalid interface name in %s=, ignoring assignment: %s", lvalue, rvalue);
+                return 0;
+        }
+
+        r = free_and_strdup(&neighbor->ifname, rvalue);
+        if (r < 0)
+                return log_oom();
+
+        neighbor->ifindex = 0;
+        return 1;
+}
+
+int config_parse_bridge_fdb_section(
+                const char *unit,
+                const char *filename,
+                unsigned line,
+                const char *section,
+                unsigned section_line,
+                const char *lvalue,
+                int ltype,
+                const char *rvalue,
+                void *data,
+                void *userdata) {
+
+        static const ConfigSectionParser table[_FDB_CONF_PARSER_MAX] = {
+                [FDB_MAC_ADDRESS] = { .parser = config_parse_hw_addr,       .ltype = ETH_ALEN, .offset = offsetof(Neighbor, ll_addr),  },
+                [FDB_FLAGS]       = { .parser = config_parse_fdb_flags,     .ltype = 0,        .offset = offsetof(Neighbor, flags),    },
+                [FDB_VLAN_ID]     = { .parser = config_parse_vlanid,        .ltype = 0,        .offset = offsetof(Neighbor, vlan_id),  },
+                [FDB_DESTINATION] = { .parser = config_parse_in_addr_data,  .ltype = 0,        .offset = offsetof(Neighbor, dst_addr), },
+                [FDB_VNI]         = { .parser = config_parse_uint32,        .ltype = 0,        .offset = offsetof(Neighbor, vni),      },
+                [FDB_INTERFACE]   = { .parser = config_parse_fdb_interface, .ltype = 0,        .offset = 0,                            },
+        };
+
+        _cleanup_(neighbor_unref_or_set_invalidp) Neighbor *neighbor = NULL;
+        Network *network = ASSERT_PTR(userdata);
+        int r;
+
+        assert(filename);
+
+        r = neighbor_new_static(network, filename, section_line, NEIGHBOR_KIND_BRIDGE_FDB, &neighbor);
+        if (r < 0)
+                return log_oom();
+
+        r = config_section_parse(table, ELEMENTSOF(table),
+                                 unit, filename, line, section, section_line, lvalue, ltype, rvalue, neighbor);
+        if (r <= 0) /* 0 means non-critical error, but the section will be ignored. */
+                return r;
+
+        TAKE_PTR(neighbor);
         return 0;
 }

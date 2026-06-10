@@ -363,7 +363,6 @@ static const char *const request_type_table[_REQUEST_TYPE_MAX] = {
         [REQUEST_TYPE_ACTIVATE_LINK]                    = "activate link",
         [REQUEST_TYPE_ADDRESS]                          = "address",
         [REQUEST_TYPE_ADDRESS_LABEL]                    = "address label",
-        [REQUEST_TYPE_BRIDGE_FDB]                       = "bridge FDB",
         [REQUEST_TYPE_BRIDGE_MDB]                       = "bridge MDB",
         [REQUEST_TYPE_DHCP_RELAY]                       = "DHCP relay agent",
         [REQUEST_TYPE_DHCP_SERVER]                      = "DHCP server",

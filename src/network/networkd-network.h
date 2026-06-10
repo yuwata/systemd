@@ -401,7 +401,6 @@ typedef struct Network {
         OrderedHashmap *addresses_by_section;
         Hashmap *routes_by_section;
         OrderedHashmap *nexthops_by_section;
-        Hashmap *bridge_fdb_entries_by_section;
         Hashmap *bridge_mdb_entries_by_section;
         OrderedHashmap *neighbors_by_section;
         Set *proxy_neighbors;

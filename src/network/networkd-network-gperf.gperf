@@ -18,7 +18,6 @@ _Pragma("GCC diagnostic ignored \"-Wzero-as-null-pointer-constant\"")
 #include "networkd-address-generation.h"
 #include "networkd-address-label.h"
 #include "networkd-address.h"
-#include "networkd-bridge-fdb.h"
 #include "networkd-bridge-mdb.h"
 #include "networkd-can.h"
 #include "networkd-dhcp-common.h"
@@ -425,12 +424,12 @@ Bridge.MulticastRouter,                          config_parse_multicast_router, 
 Bridge.Locked,                                   config_parse_tristate,                          0,                                      offsetof(Network, bridge_locked)
 Bridge.MACAuthenticationBypass,                  config_parse_tristate,                          0,                                      offsetof(Network, bridge_mac_authentication_bypass)
 Bridge.VLANTunnel,                               config_parse_tristate,                          0,                                      offsetof(Network, bridge_vlan_tunnel)
-BridgeFDB.MACAddress,                            config_parse_fdb_hwaddr,                        0,                                      0
-BridgeFDB.VLANId,                                config_parse_fdb_vlan_id,                       0,                                      0
-BridgeFDB.Destination,                           config_parse_fdb_destination,                   0,                                      0
-BridgeFDB.VNI,                                   config_parse_fdb_vxlan_vni,                     0,                                      0
-BridgeFDB.AssociatedWith,                        config_parse_fdb_ntf_flags,                     0,                                      0
-BridgeFDB.OutgoingInterface,                     config_parse_fdb_interface,                     0,                                      0
+BridgeFDB.MACAddress,                            config_parse_bridge_fdb_section,                FDB_MAC_ADDRESS,                        0
+BridgeFDB.VLANId,                                config_parse_bridge_fdb_section,                FDB_VLAN_ID,                            0
+BridgeFDB.Destination,                           config_parse_bridge_fdb_section,                FDB_DESTINATION,                        0
+BridgeFDB.VNI,                                   config_parse_bridge_fdb_section,                FDB_VNI,                                0
+BridgeFDB.AssociatedWith,                        config_parse_bridge_fdb_section,                FDB_FLAGS,                              0
+BridgeFDB.OutgoingInterface,                     config_parse_bridge_fdb_section,                FDB_INTERFACE,                          0
 BridgeMDB.MulticastGroupAddress,                 config_parse_mdb_group_address,                 0,                                      0
 BridgeMDB.VLANId,                                config_parse_mdb_vlan_id,                       0,                                      0
 BridgeVLAN.PVID,                                 config_parse_bridge_vlan_id,                    0,                                      offsetof(Network, bridge_vlan_pvid)

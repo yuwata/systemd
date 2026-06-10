@@ -38,7 +38,6 @@
 #include "netlink-util.h"
 #include "networkd-address.h"
 #include "networkd-address-label.h"
-#include "networkd-bridge-fdb.h"
 #include "networkd-bridge-mdb.h"
 #include "networkd-bridge-vlan.h"
 #include "networkd-dhcp-prefix-delegation.h"
@@ -517,9 +516,6 @@ void link_check_ready(Link *link) {
         if (!link->static_address_labels_configured)
                 return (void) log_link_debug(link, "%s(): static address labels are not configured.", __func__);
 
-        if (!link->static_bridge_fdb_configured)
-                return (void) log_link_debug(link, "%s(): static bridge MDB entries are not configured.", __func__);
-
         if (!link->static_bridge_mdb_configured)
                 return (void) log_link_debug(link, "%s(): static bridge MDB entries are not configured.", __func__);
 
@@ -635,10 +631,6 @@ static int link_request_static_configs(Link *link) {
                 return r;
 
         r = link_request_static_address_labels(link);
-        if (r < 0)
-                return r;
-
-        r = link_request_static_bridge_fdb(link);
         if (r < 0)
                 return r;
 

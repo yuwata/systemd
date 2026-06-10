@@ -9,6 +9,8 @@
 typedef enum NeighborKind {
         NEIGHBOR_KIND_STATIC,
         NEIGHBOR_KIND_PROXY,
+        NEIGHBOR_KIND_BRIDGE_FDB,
+        NEIGHBOR_KIND_VXLAN_FDB,
         _NEIGHBOR_KIND_MAX,
         _NEIGHBOR_KIND_INVALID = -EINVAL,
 } NeighborKind;
@@ -24,8 +26,15 @@ typedef struct Neighbor {
 
         NeighborKind kind;
 
+        uint8_t flags;                /* ndm_flags */
         struct in_addr_data dst_addr; /* NDA_DST */
         struct hw_addr_data ll_addr;  /* NDA_LLADDR */
+        uint16_t vlan_id;             /* NDA_VLAN */
+        uint16_t port;                /* NDA_PORT */
+        uint32_t vni;                 /* NDA_VNI */
+        int ifindex;                  /* NDA_IFINDEX */
+        char *ifname;
+        uint32_t src_vni;             /* NDA_SRC_VNI */
 } Neighbor;
 
 DECLARE_TRIVIAL_REF_UNREF_FUNC(Neighbor, neighbor);
@@ -51,5 +60,18 @@ typedef enum NeighborConfParserType {
         _NEIGHBOR_CONF_PARSER_INVALID = -EINVAL,
 } NeighborConfParserType;
 
+typedef enum FDBConfParserType {
+        FDB_MAC_ADDRESS,
+        FDB_FLAGS,
+        FDB_VLAN_ID,
+        FDB_DESTINATION,
+        FDB_VNI,
+        FDB_INTERFACE,
+        _FDB_CONF_PARSER_MAX,
+        _FDB_CONF_PARSER_INVALID = -EINVAL,
+} FDBConfParserType;
+
 CONFIG_PARSER_PROTOTYPE(config_parse_neighbor_section);
 CONFIG_PARSER_PROTOTYPE(config_parse_proxy_neighbor);
+CONFIG_PARSER_PROTOTYPE(config_parse_bridge_fdb_section);
+CONFIG_PARSER_PROTOTYPE(config_parse_vxlan_fdb_section);

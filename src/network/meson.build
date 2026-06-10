@@ -36,7 +36,6 @@ systemd_networkd_extract_sources = files(
         'networkd-address-label.c',
         'networkd-address-pool.c',
         'networkd-address.c',
-        'networkd-bridge-fdb.c',
         'networkd-bridge-mdb.c',
         'networkd-bridge-vlan.c',
         'networkd-can.c',

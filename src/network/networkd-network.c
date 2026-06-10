@@ -14,7 +14,6 @@
 #include "network-util.h"
 #include "networkd-address.h"
 #include "networkd-address-label.h"
-#include "networkd-bridge-fdb.h"
 #include "networkd-bridge-mdb.h"
 #include "networkd-dhcp-common.h"
 #include "networkd-dhcp-server-static-lease.h"
@@ -302,7 +301,6 @@ int network_verify(Network *network) {
         r = network_drop_invalid_nexthops(network);
         if (r < 0)
                 return r;
-        network_drop_invalid_bridge_fdb_entries(network);
         network_drop_invalid_bridge_mdb_entries(network);
         r = network_drop_invalid_neighbors(network);
         if (r < 0)
@@ -851,7 +849,6 @@ static Network *network_free(Network *network) {
         ordered_hashmap_free(network->addresses_by_section);
         hashmap_free(network->routes_by_section);
         ordered_hashmap_free(network->nexthops_by_section);
-        hashmap_free(network->bridge_fdb_entries_by_section);
         hashmap_free(network->bridge_mdb_entries_by_section);
         ordered_hashmap_free(network->neighbors_by_section);
         set_free(network->proxy_neighbors);
@@ -896,7 +893,6 @@ int network_get_by_name(Manager *manager, const char *name, Network **ret) {
 bool network_has_static_ipv6_configurations(Network *network) {
         Address *address;
         Route *route;
-        BridgeFDB *fdb;
         BridgeMDB *mdb;
         Neighbor *neighbor;
 
@@ -908,10 +904,6 @@ bool network_has_static_ipv6_configurations(Network *network) {
 
         HASHMAP_FOREACH(route, network->routes_by_section)
                 if (route->family == AF_INET6)
-                        return true;
-
-        HASHMAP_FOREACH(fdb, network->bridge_fdb_entries_by_section)
-                if (fdb->family == AF_INET6)
                         return true;
 
         HASHMAP_FOREACH(mdb, network->bridge_mdb_entries_by_section)
