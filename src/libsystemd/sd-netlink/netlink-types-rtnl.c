@@ -984,6 +984,9 @@ static const NLAPolicy rtnl_neigh_policies[] = {
         [NDA_PORT]              = BUILD_POLICY(U16),
         [NDA_VNI]               = BUILD_POLICY(U32),
         [NDA_IFINDEX]           = BUILD_POLICY(U32),
+        [NDA_MASTER]            = BUILD_POLICY(U32),
+        [NDA_SRC_VNI]           = BUILD_POLICY(U32),
+        [NDA_NH_ID]             = BUILD_POLICY(U32),
 };
 
 DEFINE_POLICY_SET(rtnl_neigh);
