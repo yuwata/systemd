@@ -2854,6 +2854,36 @@ static int link_new(Manager *manager, sd_netlink_message *message, Link **ret) {
         return 0;
 }
 
+static int link_new_vxlan(Link *link, sd_netlink_message *message) {
+        int r;
+
+        assert(link);
+        assert(message);
+
+        /* This is called when a new link is added, and get if the vxlan interface is in the external mode
+         * (a.k.a. collect metadata mode). The mode cannot be toggled after created. Hence, it is enough to
+         * read the field when created. */
+
+        if (!streq_ptr(link->kind, "vxlan"))
+                return 0;
+
+        r = sd_netlink_message_enter_container(message, IFLA_LINKINFO);
+        if (r < 0)
+                return r;
+
+        r = sd_netlink_message_enter_container(message, IFLA_INFO_DATA);
+        if (r < 0)
+                return r;
+
+        uint8_t u = 0;
+        r = sd_netlink_message_read_u8(message, IFLA_VXLAN_COLLECT_METADATA, &u);
+        if (r < 0)
+                return r;
+        link->vxlan_is_external = !!u;
+
+        return 0;
+}
+
 int manager_rtnl_process_link(sd_netlink *rtnl, sd_netlink_message *message, Manager *manager) {
         Link *link = NULL;
         NetDev *netdev = NULL;
@@ -2917,6 +2947,12 @@ int manager_rtnl_process_link(sd_netlink *rtnl, sd_netlink_message *message, Man
                         r = link_new(manager, message, &link);
                         if (r < 0) {
                                 log_warning_errno(r, "Could not process new link message: %m");
+                                return 0;
+                        }
+
+                        r = link_new_vxlan(link, message);
+                        if (r < 0) {
+                                log_link_warning_errno(link, r, "Could not get vxlan information: %m");
                                 return 0;
                         }
 

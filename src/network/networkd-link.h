@@ -64,6 +64,9 @@ typedef struct Link {
         bool bridge_vlan_pvid_is_untagged;
         uint32_t bridge_vlan_bitmap[BRIDGE_VLAN_BITMAP_LEN];
 
+        /* vxlan */
+        bool vxlan_is_external;
+
         /* to prevent multiple ethtool calls */
         bool ethtool_driver_read;
         bool ethtool_permanent_hw_addr_read;

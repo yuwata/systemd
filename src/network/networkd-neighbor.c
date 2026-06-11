@@ -913,6 +913,12 @@ int link_drop_unmanaged_neighbors(Link *link) {
                 if (!neighbor_exists(neighbor))
                         continue;
 
+                /* Do not remove foreign vxlan FDB entries when the vxlan is in the external mode. */
+                if (link->vxlan_is_external &&
+                    neighbor->kind == NEIGHBOR_KIND_VXLAN_FDB &&
+                    neighbor->source == NETWORK_CONFIG_SOURCE_FOREIGN)
+                        continue;
+
                 if (!link_should_mark_config(link, /* only_static= */ false, neighbor->source, RTPROT_STATIC))
                         continue;
 
