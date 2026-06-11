@@ -59,7 +59,7 @@ int config_parse_default_port_vlanid(
 
         if (streq(rvalue, "none")) {
                 *id = 0;
-                return 0;
+                return 1;
         }
 
         return config_parse_vlanid(unit, filename, line, section, section_line,
@@ -97,5 +97,5 @@ int config_parse_vlanid(
                 return 0;
         }
 
-        return 0;
+        return 1;
 }
