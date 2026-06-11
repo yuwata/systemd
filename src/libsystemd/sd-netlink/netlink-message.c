@@ -990,6 +990,35 @@ int netlink_message_read_in_addr_union(sd_netlink_message *m, uint16_t attr_type
         return r;
 }
 
+int netlink_message_read_in_addr_union_auto(sd_netlink_message *m, uint16_t attr_type, int *ret_family, union in_addr_union *ret) {
+        int r;
+
+        assert_return(m, -EINVAL);
+        assert_return(!!ret_family == !!ret, -EINVAL);
+
+        union in_addr_union a;
+        r = netlink_message_read_impl(
+                        m, attr_type, /* strict= */ false,
+                        NETLINK_TYPE_IN_ADDR, sizeof(a),
+                        &a, /* ret_net_byteorder= */ NULL);
+        if (r < 0)
+                return r;
+
+        if ((size_t) r == FAMILY_ADDRESS_SIZE(AF_INET)) {
+                if (ret_family)
+                        *ret_family = AF_INET;
+        } else if ((size_t) r == FAMILY_ADDRESS_SIZE(AF_INET6)) {
+                if (ret_family)
+                        *ret_family = AF_INET6;
+        } else
+                return -EIO;
+
+        if (ret)
+                *ret = a;
+
+        return r;
+}
+
 int sd_netlink_message_read_in_addr(sd_netlink_message *m, uint16_t attr_type, struct in_addr *ret) {
         assert_return(m, -EINVAL);
 

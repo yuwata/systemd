@@ -159,6 +159,7 @@ int netlink_message_append_sockaddr_union(sd_netlink_message *m, unsigned short 
 
 int netlink_message_read_hw_addr(sd_netlink_message *m, unsigned short type, struct hw_addr_data *ret);
 int netlink_message_read_in_addr_union(sd_netlink_message *m, unsigned short type, int family, union in_addr_union *ret);
+int netlink_message_read_in_addr_union_auto(sd_netlink_message *m, uint16_t attr_type, int *ret_family, union in_addr_union *ret);
 
 void rtattr_append_attribute_internal(struct rtattr *rta, unsigned short type, const void *data, size_t data_length);
 int rtattr_append_attribute(struct rtattr **rta, unsigned short type, const void *data, size_t data_length);
