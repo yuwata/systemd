@@ -19,6 +19,7 @@
 #include "socket-util.h"
 #include "string-table.h"
 #include "string-util.h"
+#include "strv.h"
 #include "vxlan.h"
 
 static const char * const neighbor_kind_table[_NEIGHBOR_KIND_MAX] = {
@@ -1503,15 +1504,9 @@ static int config_parse_fdb_flags(
                 return 1;
         }
 
-        if (streq(rvalue, "self")) {
-                *flags |= NTF_SELF;
+        /* Deprecated. Silently ignored. */
+        if (STR_IN_SET(rvalue, "self", "master"))
                 return 1;
-        }
-
-        if (streq(rvalue, "master")) {
-                *flags |= NTF_MASTER;
-                return 1;
-        }
 
         return log_syntax_parse_error(unit, filename, line, 0, lvalue, rvalue);
 }

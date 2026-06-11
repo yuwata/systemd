@@ -425,10 +425,11 @@ Bridge.Locked,                                   config_parse_tristate,         
 Bridge.MACAuthenticationBypass,                  config_parse_tristate,                          0,                                      offsetof(Network, bridge_mac_authentication_bypass)
 Bridge.VLANTunnel,                               config_parse_tristate,                          0,                                      offsetof(Network, bridge_vlan_tunnel)
 BridgeFDB.MACAddress,                            config_parse_bridge_fdb_section,                FDB_MAC_ADDRESS,                        0
+BridgeFDB.Flag,                                  config_parse_bridge_fdb_section,                FDB_FLAGS,                              0
 BridgeFDB.VLANId,                                config_parse_bridge_fdb_section,                FDB_VLAN_ID,                            0
 BridgeFDB.Destination,                           config_parse_bridge_fdb_section,                FDB_DESTINATION,                        0
 BridgeFDB.VNI,                                   config_parse_bridge_fdb_section,                FDB_VNI,                                0
-BridgeFDB.AssociatedWith,                        config_parse_bridge_fdb_section,                FDB_FLAGS,                              0
+BridgeFDB.AssociatedWith,                        config_parse_bridge_fdb_section,                FDB_FLAGS,                              0 /* deprecated */
 BridgeFDB.OutgoingInterface,                     config_parse_bridge_fdb_section,                FDB_INTERFACE,                          0
 BridgeMDB.MulticastGroupAddress,                 config_parse_mdb_group_address,                 0,                                      0
 BridgeMDB.VLANId,                                config_parse_mdb_vlan_id,                       0,                                      0
