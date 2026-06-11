@@ -554,6 +554,7 @@ int network_load_one(Manager *manager, OrderedHashmap **networks, const char *fi
                         "BridgeFDB\0"
                         "BridgeMDB\0"
                         "BridgeVLAN\0"
+                        "VXLANFDB\0"
                         "IPv6SendRA\0"
                         "IPv6PrefixDelegation\0"
                         "IPv6Prefix\0"

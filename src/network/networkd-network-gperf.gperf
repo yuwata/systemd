@@ -427,15 +427,20 @@ Bridge.VLANTunnel,                               config_parse_tristate,         
 BridgeFDB.MACAddress,                            config_parse_bridge_fdb_section,                FDB_MAC_ADDRESS,                        0
 BridgeFDB.Flag,                                  config_parse_bridge_fdb_section,                FDB_FLAGS,                              0
 BridgeFDB.VLANId,                                config_parse_bridge_fdb_section,                FDB_VLAN_ID,                            0
-BridgeFDB.Destination,                           config_parse_bridge_fdb_section,                FDB_DESTINATION,                        0
-BridgeFDB.VNI,                                   config_parse_bridge_fdb_section,                FDB_VNI,                                0
+BridgeFDB.Destination,                           config_parse_bridge_fdb_section,                FDB_DESTINATION,                        0 /* deprecated */
+BridgeFDB.VNI,                                   config_parse_bridge_fdb_section,                FDB_VNI,                                0 /* deprecated */
 BridgeFDB.AssociatedWith,                        config_parse_bridge_fdb_section,                FDB_FLAGS,                              0 /* deprecated */
-BridgeFDB.OutgoingInterface,                     config_parse_bridge_fdb_section,                FDB_INTERFACE,                          0
+BridgeFDB.OutgoingInterface,                     config_parse_bridge_fdb_section,                FDB_INTERFACE,                          0 /* deprecated */
 BridgeMDB.MulticastGroupAddress,                 config_parse_mdb_group_address,                 0,                                      0
 BridgeMDB.VLANId,                                config_parse_mdb_vlan_id,                       0,                                      0
 BridgeVLAN.PVID,                                 config_parse_bridge_vlan_id,                    0,                                      offsetof(Network, bridge_vlan_pvid)
 BridgeVLAN.VLAN,                                 config_parse_bridge_vlan_id_range,              0,                                      offsetof(Network, bridge_vlan_bitmap)
 BridgeVLAN.EgressUntagged,                       config_parse_bridge_vlan_id_range,              0,                                      offsetof(Network, bridge_vlan_untagged_bitmap)
+VXLANFDB.MACAddress,                             config_parse_vxlan_fdb_section,                 FDB_MAC_ADDRESS,                        0
+VXLANFDB.Flag,                                   config_parse_vxlan_fdb_section,                 FDB_FLAGS,                              0
+VXLANFDB.Destination,                            config_parse_vxlan_fdb_section,                 FDB_DESTINATION,                        0
+VXLANFDB.VNI,                                    config_parse_vxlan_fdb_section,                 FDB_VNI,                                0
+VXLANFDB.OutgoingInterface,                      config_parse_vxlan_fdb_section,                 FDB_INTERFACE,                          0
 DHCPPrefixDelegation.UplinkInterface,            config_parse_uplink,                            0,                                      0
 DHCPPrefixDelegation.SubnetId,                   config_parse_dhcp_pd_subnet_id,                 0,                                      offsetof(Network, dhcp_pd_subnet_id)
 DHCPPrefixDelegation.Announce,                   config_parse_bool,                              0,                                      offsetof(Network, dhcp_pd_announce)

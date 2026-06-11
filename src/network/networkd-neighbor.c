@@ -1243,6 +1243,16 @@ int manager_rtnl_process_neighbor(sd_netlink *rtnl, sd_netlink_message *message,
                                 ##__VA_ARGS__);                         \
         })
 
+#define log_vxlan_fdb_section(neighbor, fmt, ...)                       \
+        ({                                                              \
+                const Neighbor *_neighbor = (neighbor);                 \
+                log_section_warning_errno(                              \
+                                _neighbor ? _neighbor->section : NULL,  \
+                                SYNTHETIC_ERRNO(EINVAL),                \
+                                fmt " Ignoring [VXLANFDB] section.",   \
+                                ##__VA_ARGS__);                         \
+        })
+
 static int neighbor_section_verify(Neighbor *neighbor) {
         assert(neighbor);
 
@@ -1259,7 +1269,7 @@ static int neighbor_section_verify(Neighbor *neighbor) {
                 break;
 
         case NEIGHBOR_KIND_BRIDGE_FDB:
-                /* We allow to configure both bridge FDB and vxlan FDB by [bridgeFDB] section.
+                /* Previously, we allowed to configure both bridge FDB and vxlan FDB by [bridgeFDB] section.
                  * vlan_id is for bridge FDB, but dst_addr, vni, and ifindex/ifname are for vxlan FDB. */
                 if (in_addr_is_set(neighbor->dst_addr.family, &neighbor->dst_addr.address) ||
                     neighbor->vni > 0 ||
@@ -1287,10 +1297,10 @@ static int neighbor_section_verify(Neighbor *neighbor) {
                         };
 
                 if (!in_addr_is_set(neighbor->dst_addr.family, &neighbor->dst_addr.address))
-                        return log_bridge_fdb_section(neighbor, "BridgeFDB section without Destination= configured.");
+                        return log_vxlan_fdb_section(neighbor, "VXLANFDB section without Destination= configured.");
 
                 if (neighbor->vni > VXLAN_VID_MAX)
-                        return log_bridge_fdb_section(neighbor, "BridgeFDB section has VNI > %"PRIu32".", neighbor->vni);
+                        return log_vxlan_fdb_section(neighbor, "VXLANFDB section has VNI > %"PRIu32".", neighbor->vni);
                 break;
 
         default:
@@ -1572,6 +1582,7 @@ int config_parse_bridge_fdb_section(
                 [FDB_MAC_ADDRESS] = { .parser = config_parse_hw_addr,       .ltype = ETH_ALEN, .offset = offsetof(Neighbor, ll_addr),  },
                 [FDB_FLAGS]       = { .parser = config_parse_fdb_flags,     .ltype = 0,        .offset = offsetof(Neighbor, flags),    },
                 [FDB_VLAN_ID]     = { .parser = config_parse_vlanid,        .ltype = 0,        .offset = offsetof(Neighbor, vlan_id),  },
+                /* for vxlan FDB, but for backward compatibility */
                 [FDB_DESTINATION] = { .parser = config_parse_in_addr_data,  .ltype = 0,        .offset = offsetof(Neighbor, dst_addr), },
                 [FDB_VNI]         = { .parser = config_parse_uint32,        .ltype = 0,        .offset = offsetof(Neighbor, vni),      },
                 [FDB_INTERFACE]   = { .parser = config_parse_fdb_interface, .ltype = 0,        .offset = 0,                            },
@@ -1584,6 +1595,45 @@ int config_parse_bridge_fdb_section(
         assert(filename);
 
         r = neighbor_new_static(network, filename, section_line, NEIGHBOR_KIND_BRIDGE_FDB, &neighbor);
+        if (r < 0)
+                return log_oom();
+
+        r = config_section_parse(table, ELEMENTSOF(table),
+                                 unit, filename, line, section, section_line, lvalue, ltype, rvalue, neighbor);
+        if (r <= 0) /* 0 means non-critical error, but the section will be ignored. */
+                return r;
+
+        TAKE_PTR(neighbor);
+        return 0;
+}
+
+int config_parse_vxlan_fdb_section(
+                const char *unit,
+                const char *filename,
+                unsigned line,
+                const char *section,
+                unsigned section_line,
+                const char *lvalue,
+                int ltype,
+                const char *rvalue,
+                void *data,
+                void *userdata) {
+
+        static const ConfigSectionParser table[_FDB_CONF_PARSER_MAX] = {
+                [FDB_MAC_ADDRESS] = { .parser = config_parse_hw_addr,       .ltype = ETH_ALEN, .offset = offsetof(Neighbor, ll_addr),  },
+                [FDB_FLAGS]       = { .parser = config_parse_fdb_flags,     .ltype = 0,        .offset = offsetof(Neighbor, flags),    },
+                [FDB_DESTINATION] = { .parser = config_parse_in_addr_data,  .ltype = 0,        .offset = offsetof(Neighbor, dst_addr), },
+                [FDB_VNI]         = { .parser = config_parse_uint32,        .ltype = 0,        .offset = offsetof(Neighbor, vni),      },
+                [FDB_INTERFACE]   = { .parser = config_parse_fdb_interface, .ltype = 0,        .offset = 0,                            },
+        };
+
+        _cleanup_(neighbor_unref_or_set_invalidp) Neighbor *neighbor = NULL;
+        Network *network = ASSERT_PTR(userdata);
+        int r;
+
+        assert(filename);
+
+        r = neighbor_new_static(network, filename, section_line, NEIGHBOR_KIND_VXLAN_FDB, &neighbor);
         if (r < 0)
                 return log_oom();
 
