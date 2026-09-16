@@ -107,6 +107,187 @@ check_device_property() {
     assert_eq "$count" "$expected_count"
 }
 
+check_netif() {
+    local path=${1:?}
+    local activestate=${2:?}
+    local substate=${3:?}
+
+    assert_eq "$(systemctl show -q --property=ActiveState --value "$path")" "$activestate"
+    assert_eq "$(systemctl show -q --property=SubState --value "$path")" "$substate"
+}
+
+setup_device_state_test() {
+    local i ifname ifindex
+
+    # Set up network interfaces to test device state transitions across soft-reboot.
+
+    mkdir -p /run/udev/rules.d/
+
+    cat >/run/udev/rules.d/99-softreboot-netif.rules <<EOF
+ACTION!="add", GOTO="end"
+SUBSYSTEM!="net", GOTO="end"
+KERNEL=="testif*", ENV{SYSTEMD_ALIAS}="/sys/alias/%k-a /sys/alias/%k-b"
+LABEL="end"
+EOF
+    udevadm control --reload
+
+    # Create a dummy interface that will be renamed after soft-reboot.
+    for i in keep rename rename2 remove sticky; do
+        ifname="testif$i"
+        ip link add "$ifname" type dummy
+        ip link set "$ifname" down
+        udevadm wait --timeout=30 --settle /sys/class/net/"$ifname"
+    done
+
+    for i in keep rename rename2 remove sticky; do
+        ifname="testif$i"
+        # The main device
+        check_netif /sys/devices/virtual/net/"$ifname" active plugged
+        # The default alias
+        check_netif /sys/subsystem/net/devices/"$ifname" active plugged
+        # The custom aliases
+        check_netif /sys/alias/"$ifname"-a active plugged
+        check_netif /sys/alias/"$ifname"-b active plugged
+        check_netif /sys/alias/"$ifname"-c inactive dead
+        check_netif /sys/alias/"$ifname"-x inactive dead
+    done
+
+    # Emulate "udevadm info --cleanup-db" behavior: remove the udev database entry.
+    # This creates the precondition where device_coldplug() after soft-reboot will leave
+    # the device in the empty-found + DEVICE_TENTATIVE state.
+    for i in keep rename rename2 remove; do
+        ifname="testif$i"
+        ifindex=$(cat /sys/class/net/"$ifname"/ifindex)
+        rm -f /run/udev/data/n"$ifindex"
+    done
+
+    # Remove testifremove.
+    # Note, if the device is removed without udev DB, then the corresponding device units DO NOT enter the
+    # dead state, as the broadcast uevent message does not have 'systemd' tag, thus the message is filtered
+    # by BPF and PID1 does not process the message. The stale unit states will be resolved after soft-reboot,
+    # daeon-reload, or daemon-reexec.
+    ip link del testifremove
+
+    ifname="testifremove"
+    check_netif /sys/devices/virtual/net/"$ifname" active plugged
+    check_netif /sys/subsystem/net/devices/"$ifname" active plugged
+    check_netif /sys/alias/"$ifname"-a active plugged
+    check_netif /sys/alias/"$ifname"-b active plugged
+    check_netif /sys/alias/"$ifname"-c inactive dead
+    check_netif /sys/alias/"$ifname"-x inactive dead
+
+    # Install a rename rule that will trigger after soft-reboot. The rules file is for
+    # after soft-reboot, hence it is not necessary to reload udevd now.
+    cat >/run/udev/rules.d/99-softreboot-netif.rules <<EOF
+ACTION!="add|move", GOTO="end"
+SUBSYSTEM!="net", GOTO="end"
+# testifkeep: the name is kept
+KERNEL=="testifkeep", ENV{SYSTEMD_ALIAS}="/sys/alias/%k-a /sys/alias/%k-c"
+# testifrename: will be renamed to testifrenamed by udev rules
+KERNEL=="testifrename", ENV{SYSTEMD_ALIAS}="/sys/alias/%k-a /sys/alias/%k-x", NAME="testifrenamed"
+KERNEL=="testifrenamed", ENV{SYSTEMD_ALIAS}="/sys/alias/%k-a /sys/alias/%k-c"
+# testifrename2: will be renamed by ip command
+KERNEL=="testifrenamed2", ENV{SYSTEMD_ALIAS}="/sys/alias/%k-a /sys/alias/%k-c"
+# testifremove: already removed, no rule
+# testifsticky: db_persistent is emulated
+KERNEL=="testifsticky", ENV{SYSTEMD_ALIAS}="/sys/alias/%k-a /sys/alias/%k-c"
+LABEL="end"
+EOF
+}
+
+verify_device_state_test() {
+    local action="${1:-}"
+    local i ifname
+
+    # If requested, run daemon-reload/reexec before validate.
+    if [[ -n "$action" ]]; then
+        systemctl "$action"
+    fi
+
+    # Soft-reboot does not restart systemd-udev-trigger.service, hence the new rule is not applied yet,
+    # and the interfaces are in the activating (tentative) state when DB is removed.
+    for i in keep rename rename2; do
+        ifname="testif$i"
+        check_netif /sys/devices/virtual/net/"$ifname" activating tentative
+        check_netif /sys/subsystem/net/devices/"$ifname" activating tentative
+        check_netif /sys/alias/"$ifname"-a activating tentative
+        check_netif /sys/alias/"$ifname"-b activating tentative
+        check_netif /sys/alias/"$ifname"-c inactive dead
+        check_netif /sys/alias/"$ifname"-x inactive dead
+    done
+
+    ifname="testifsticky"
+    check_netif /sys/devices/virtual/net/"$ifname" active plugged
+    check_netif /sys/subsystem/net/devices/"$ifname" active plugged
+    check_netif /sys/alias/"$ifname"-a active plugged
+    check_netif /sys/alias/"$ifname"-b active plugged
+    check_netif /sys/alias/"$ifname"-c inactive dead
+    check_netif /sys/alias/"$ifname"-x inactive dead
+
+    for i in renamed renamed2 remove; do
+        ifname="testif$i"
+        check_netif /sys/devices/virtual/net/"$ifname" inactive dead
+        check_netif /sys/subsystem/net/devices/"$ifname" inactive dead
+        check_netif /sys/alias/"$ifname"-a inactive dead
+        check_netif /sys/alias/"$ifname"-b inactive dead
+        check_netif /sys/alias/"$ifname"-c inactive dead
+        check_netif /sys/alias/"$ifname"-x inactive dead
+    done
+
+    # Trigger an 'add' uevent for interfaces so udevd reprocesses the devices and applies the new rule.
+    for i in keep rename sticky; do
+        ifname="testif$i"
+        udevadm trigger --action add --settle /sys/class/net/"$ifname"
+    done
+
+    # Manually rename testifrename2
+    ip link set testifrename2 name testifrenamed2
+
+    # Verify the states of units.
+    # Note, 'systemctl start/stop foo.device' waits until the device unit becomes active/inactive.
+    for i in keep renamed renamed2 sticky; do
+        ifname="testif$i"
+        systemctl start /sys/devices/virtual/net/"$ifname"
+        check_netif /sys/devices/virtual/net/"$ifname" active plugged
+        check_netif /sys/subsystem/net/devices/"$ifname" active plugged
+        check_netif /sys/alias/"$ifname"-a active plugged
+        check_netif /sys/alias/"$ifname"-b inactive dead
+        check_netif /sys/alias/"$ifname"-c active plugged
+        check_netif /sys/alias/"$ifname"-x inactive dead
+    done
+
+    for i in rename rename2 remove; do
+        ifname="testif$i"
+        systemctl stop /sys/devices/virtual/net/"$ifname"
+        check_netif /sys/devices/virtual/net/"$ifname" inactive dead
+        check_netif /sys/subsystem/net/devices/"$ifname" inactive dead
+        check_netif /sys/alias/"$ifname"-a inactive dead
+        check_netif /sys/alias/"$ifname"-b inactive dead
+        check_netif /sys/alias/"$ifname"-c inactive dead
+        check_netif /sys/alias/"$ifname"-x inactive dead
+    done
+
+    # Cleanup
+    rm -f /run/udev/rules.d/99-softreboot-netif.rules
+    udevadm control --reload
+
+    for i in keep rename renamed rename2 renamed2 remove sticky; do
+        ifname="testif$i"
+        ip link del "$ifname" ||:
+    done
+
+    for i in keep rename renamed rename2 renamed2 remove sticky; do
+        ifname="testif$i"
+        systemctl stop /sys/devices/virtual/net/"$ifname"
+        check_netif /sys/devices/virtual/net/"$ifname" inactive dead
+        check_netif /sys/subsystem/net/devices/"$ifname" inactive dead
+        check_netif /sys/alias/"$ifname"-a inactive dead
+        check_netif /sys/alias/"$ifname"-b inactive dead
+        check_netif /sys/alias/"$ifname"-c inactive dead
+        check_netif /sys/alias/"$ifname"-x inactive dead
+    done
+}
+
 export SYSTEMD_LOG_LEVEL=debug
 
 if [ -f /run/TEST-82-SOFTREBOOT.touch3 ]; then
@@ -140,6 +321,8 @@ if [ -f /run/TEST-82-SOFTREBOOT.touch3 ]; then
     assert_eq "$(journalctl -q -o short-monotonic -u systemd-journald.service --grep 'corrupt')" ""
 
     check_device_property 3
+
+    verify_device_state_test daemon-reexec
 
     # All succeeded, exit cleanly now
 
@@ -178,6 +361,9 @@ elif [ -f /run/TEST-82-SOFTREBOOT.touch2 ]; then
 
     check_device_property 2
     trigger_uevent
+
+    verify_device_state_test daemon-reload
+    setup_device_state_test
 
     # Now issue the soft reboot. We should be right back soon.
     touch /run/TEST-82-SOFTREBOOT.touch3
@@ -253,6 +439,9 @@ elif [ -f /run/TEST-82-SOFTREBOOT.touch ]; then
 
     check_device_property 1
     trigger_uevent
+
+    verify_device_state_test
+    setup_device_state_test
 
     # Now issue the soft reboot. We should be right back soon. Given /run/nextroot exists, we should
     # automatically do a softreboot instead of normal reboot.
@@ -358,6 +547,8 @@ EOF
     timeout 30 bash -c "until systemctl is-active --quiet user@${linger_uid}.service; do sleep 1; done"
 
     trigger_uevent
+
+    setup_device_state_test
 
     # Now issue the soft reboot. We should be right back soon.
     touch /run/TEST-82-SOFTREBOOT.touch
