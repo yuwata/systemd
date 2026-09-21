@@ -1122,23 +1122,23 @@ static void device_propagate_reload(Manager *m, Device *d) {
                 log_unit_warning_errno(UNIT(d), r, "Failed to propagate reload, ignoring: %m");
 }
 
-static void device_remove_old_on_move(Manager *m, sd_device *dev) {
-        _cleanup_free_ char *syspath_old = NULL;
-        const char *devpath_old;
+static int device_remove_old_on_move(Manager *m, sd_device *dev) {
         int r;
 
         assert(m);
         assert(dev);
 
+        const char *devpath_old;
         r = sd_device_get_property_value(dev, "DEVPATH_OLD", &devpath_old);
         if (r < 0)
-                return (void) log_device_debug_errno(dev, r, "Failed to get DEVPATH_OLD= property on 'move' uevent, ignoring: %m");
+                return log_device_debug_errno(dev, r, "Failed to get DEVPATH_OLD= property on 'move' uevent: %m");
 
-        syspath_old = path_join("/sys", devpath_old);
+        _cleanup_free_ char *syspath_old = path_join("/sys", devpath_old);
         if (!syspath_old)
-                return (void) log_oom();
+                return log_oom_debug();
 
         device_update_found_by_sysfs(m, syspath_old, DEVICE_NOT_FOUND, DEVICE_FOUND_UDEV);
+        return 0;
 }
 
 static int device_dispatch_io(sd_device_monitor *monitor, sd_device *dev, void *userdata) {
@@ -1187,7 +1187,7 @@ static int device_dispatch_io(sd_device_monitor *monitor, sd_device *dev, void *
         }
 
         if (action == SD_DEVICE_MOVE)
-                device_remove_old_on_move(m, dev);
+                (void) device_remove_old_on_move(m, dev);
 
         /* A change event can signal that a device is becoming ready, in particular if the device is using
          * the SYSTEMD_READY logic in udev so we need to reach the else block of the following if, even for
