@@ -104,15 +104,15 @@ check_state "sys-subsystem-net-devices-${IFNAME}.device" active plugged
 for _ in {1..3}; do
     systemctl daemon-reexec
     check_state testsleep.service active running
-    check_state "sys-devices-virtual-net-${IFNAME}.device" active plugged
-    check_state "sys-subsystem-net-devices-${IFNAME}.device" active plugged
+    check_state "sys-devices-virtual-net-${IFNAME}.device" activating tentative
+    check_state "sys-subsystem-net-devices-${IFNAME}.device" activating tentative
 done
 
 for _ in {1..3}; do
     systemctl daemon-reload
     check_state testsleep.service active running
-    check_state "sys-devices-virtual-net-${IFNAME}.device" active plugged
-    check_state "sys-subsystem-net-devices-${IFNAME}.device" active plugged
+    check_state "sys-devices-virtual-net-${IFNAME}.device" activating tentative
+    check_state "sys-subsystem-net-devices-${IFNAME}.device" activating tentative
 done
 
 # Check if the reexec and reload have finished during processing the event.
