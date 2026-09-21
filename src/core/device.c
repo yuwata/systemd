@@ -1167,9 +1167,6 @@ static int device_dispatch_io(sd_device_monitor *monitor, sd_device *dev, void *
 
         log_device_debug(dev, "Got '%s' action on syspath '%s'.", device_action_to_string(action), sysfs);
 
-        if (action == SD_DEVICE_MOVE)
-                device_remove_old_on_move(m, dev);
-
         /* When udevd failed to process the device, SYSTEMD_ALIAS or any other properties may contain invalid
          * values. Let's refuse to handle the uevent. */
         if (sd_device_get_property_value(dev, "UDEV_WORKER_FAILED", NULL) >= 0) {
@@ -1188,6 +1185,9 @@ static int device_dispatch_io(sd_device_monitor *monitor, sd_device *dev, void *
 
                 return 0;
         }
+
+        if (action == SD_DEVICE_MOVE)
+                device_remove_old_on_move(m, dev);
 
         /* A change event can signal that a device is becoming ready, in particular if the device is using
          * the SYSTEMD_READY logic in udev so we need to reach the else block of the following if, even for
