@@ -331,6 +331,27 @@ int manager_process_seat_device(Manager *m, sd_device *d) {
         return 0;
 }
 
+int manager_maybe_process_seat_device(Manager *m, sd_device *d) {
+        int r;
+
+        assert(m);
+        assert(d);
+
+        r = sd_device_has_current_tag(d, "master-of-seat");
+        if (r < 0)
+                return r;
+        if (r > 0)
+                return manager_process_seat_device(m, d);
+
+        r = device_in_subsystem(d, "input", "graphics", "drm");
+        if (r < 0)
+                return r;
+        if (r > 0)
+                return manager_process_seat_device(m, d);
+
+        return 0;
+}
+
 int manager_process_button_device(Manager *m, sd_device *d, Button **ret_button) {
         const char *sysname;
         Button *b;
