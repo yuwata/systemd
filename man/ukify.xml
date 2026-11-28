@@ -535,12 +535,13 @@
           <term><option>--pcrpkey=<replaceable>PATH</replaceable></option></term>
 
           <listitem><para>A path to a public key to embed in the <literal>.pcrpkey</literal> section. If not
-          specified, and there's exactly one
-          <varname>PCRPublicKey=</varname>/<option>--pcr-public-key=</option> or
-          <varname>PCRCertificate=</varname>/<option>--pcr-certificate=</option> argument, that key will be
-          used. Otherwise, if there's exactly one
-          <varname>PCRPrivateKey=</varname>/<option>--pcr-private-key=</option> argument, the public key is
-          derived from it. Otherwise, the section will not be present.</para>
+          specified, the key is chosen as follows. If exactly one
+          <varname>PCRPrivateKey=</varname>/<option>--pcr-private-key=</option> is used to sign, its public
+          key is embedded. The matching <varname>PCRPublicKey=</varname>/<option>--pcr-public-key=</option>
+          or <varname>PCRCertificate=</varname>/<option>--pcr-certificate=</option> is used if given. If
+          neither is given, the public key is derived from the private key. If nothing is signed and exactly
+          one public key or certificate is given, that key is embedded. In any other case, the section is
+          not present.</para>
 
           <xi:include href="version-info.xml" xpointer="v253"/></listitem>
         </varlistentry>
@@ -758,9 +759,22 @@
     <refsect2>
       <title>[PCRSignature:<replaceable>NAME</replaceable>] section</title>
 
-      <para>In the config file, those options are grouped by section. On the command line, they
-      must be specified in the same order. The sections specified in both sources are combined.
-      </para>
+      <para>In the config file, those options are grouped by section: each section specifies one signing
+      group, and the options may be omitted per section.</para>
+
+      <para>With <option>--policy-digest</option>, a section must not specify
+      <varname>PCRPrivateKey=</varname>. The sections that specify <varname>Phases=</varname> or
+      <varname>PolicyRef=</varname> define the policies.</para>
+
+      <para>Without <option>--policy-digest</option>, a section that specifies <varname>Phases=</varname> or
+      <varname>PolicyRef=</varname> must also specify <varname>PCRPrivateKey=</varname>.</para>
+
+      <para>A section that specifies only <varname>PCRPublicKey=</varname> or
+      <varname>PCRCertificate=</varname> does not sign anything; it only causes the public key to be
+      embedded into the image. It is only allowed when nothing is signed.</para>
+
+      <para>On the command line, the options must be specified in the same order. They form signing groups
+      of their own: they are not paired with the settings from the config file sections.</para>
 
       <variablelist>
         <varlistentry>
